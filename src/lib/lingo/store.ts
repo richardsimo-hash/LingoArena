@@ -18,19 +18,19 @@ export interface LingoState {
 export const useLingoStore = create<LingoState>()(
   persist(
     (set) => ({
-      nativeLanguage: 'es',
-      targetLanguage: 'en',
+      nativeLanguage: 'es', // Por defecto Español
+      targetLanguage: 'en', // Aprendiendo Inglés
       xp: 100,
-      hearts: '∞',
+      hearts: '∞', // Corazones Infinitos
       streak: 1,
       selectedPersona: 'tour-guide',
 
       setNativeLanguage: (lang) => set({ nativeLanguage: lang }),
-      setTargetLanguage: (lang) => set({ targetLanguage: lang }),
+      setTargetLanguage: (lang) => set({ nativeLanguage: 'es', targetLanguage: lang }),
       addXp: (amount) => set((state) => ({ xp: state.xp + amount })),
       
       useHeart: () => {
-        // Vidas infinitas activas (no reduce corazones)
+        // Vidas infinitas: no descuenta corazones
       },
 
       resetProgress: () =>
@@ -43,7 +43,7 @@ export const useLingoStore = create<LingoState>()(
         }),
     }),
     {
-      name: 'lingo-arena-v5',
+      name: 'lingo-arena-v6', // Forzamos nueva clave para limpiar la memoria caché previa
     }
   )
 );
