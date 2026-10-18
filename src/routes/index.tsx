@@ -1,167 +1,108 @@
 import React, { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useLingoStore } from '@/lib/lingo/store';
-import { LearnPath } from '@/components/lingo/LearnPath';
-import { SpeechArena } from '@/components/lingo/SpeechArena';
-import { GrammarBattle } from '@/components/lingo/GrammarBattle';
-import { Stats } from '@/components/lingo/Stats';
-import { Settings } from '@/components/lingo/Settings';
-import { 
-  BookOpen, 
-  Mic, 
-  Swords, 
-  BarChart3, 
-  Settings as SettingsIcon, 
-  Flame, 
-  Gem, 
-  Heart,
-  MessageSquare
-} from 'lucide-react';
+import { useLingoStore } from '../lib/lingo/store';
+import { LearnPath } from '../components/lingo/learnpath';
+import { BookOpen, Mic, Swords, BarChart2, Heart, Flame } from 'lucide-react';
 
 export const Route = createFileRoute('/')({
-  component: LingoArenaApp,
+  component: LingoApp,
 });
 
-function LingoArenaApp() {
-  const [activeTab, setActiveTab] = useState<'learn' | 'speech' | 'grammar' | 'progress' | 'chat'>('learn');
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  
-  const { nativeLanguage, targetLanguage, xp, streak, setTargetLanguage } = useLingoStore();
-  const isSpanish = nativeLanguage === 'es' || nativeLanguage === 'Spanish' || nativeLanguage === 'español';
+function LingoApp() {
+  const [activeTab, setActiveTab] = useState<'learn' | 'speech' | 'grammar' | 'stats'>('learn');
+  const { xp, streak } = useLingoStore();
 
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      <header className="bg-white border-b border-slate-200 h-16 px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
-        <div className="flex items-center gap-3">
-          <h1 className="text-xl font-black text-indigo-600 tracking-tight">LingoArena</h1>
-          <span className="text-xs bg-indigo-50 text-indigo-600 font-bold px-2.5 py-1 rounded-full border border-indigo-100">
-            AI Vibe Coding
-          </span>
+    <div className="min-h-screen bg-slate-50 flex">
+      {/* Sidebar Navigation */}
+      <aside className="w-64 bg-white border-r border-slate-200 p-6 flex flex-col justify-between">
+        <div>
+          <div className="flex items-center gap-2 mb-8">
+            <h1 className="text-2xl font-black text-indigo-600">LingoArena</h1>
+            <span className="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">AI</span>
+          </div>
+
+          <nav className="space-y-2">
+            <button
+              onClick={() => setActiveTab('learn')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${
+                activeTab === 'learn' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <BookOpen size={20} />
+              <span>LEARN PATH</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('speech')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${
+                activeTab === 'speech' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Mic size={20} />
+              <span>SPEECH ARENA</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('grammar')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${
+                activeTab === 'grammar' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <Swords size={20} />
+              <span>GRAMMAR BATTLE</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('stats')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all ${
+                activeTab === 'stats' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <BarChart2 size={20} />
+              <span>PROGRESS</span>
+            </button>
+          </nav>
         </div>
 
-        <div className="flex items-center gap-6">
-          <select 
-            value={targetLanguage} 
-            onChange={(e) => setTargetLanguage(e.target.value)}
-            className="bg-slate-100 border border-slate-200 text-slate-700 font-semibold px-3 py-1.5 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            <option value="en">🇺🇸 English</option>
-            <option value="fr">🇫🇷 French</option>
-            <option value="de">🇩🇪 German</option>
-            <option value="it">🇮🇹 Italian</option>
-            <option value="ja">🇯🇵 Japanese</option>
-            <option value="pt">🇵🇹 Portuguese</option>
-          </select>
-
-          <div className="flex items-center gap-1.5 font-bold text-amber-500 text-sm bg-amber-50 px-3 py-1.5 rounded-xl">
-            <Flame size={18} className="fill-amber-500" />
+        {/* User Stats Summary */}
+        <div className="pt-4 border-t border-slate-100 flex items-center justify-between">
+          <div className="flex items-center gap-1 font-bold text-amber-500">
+            <Flame size={20} />
             <span>{streak}</span>
           </div>
-
-          <div className="flex items-center gap-1.5 font-bold text-cyan-600 text-sm bg-cyan-50 px-3 py-1.5 rounded-xl">
-            <Gem size={18} className="fill-cyan-500" />
-            <span>{xp}</span>
+          <div className="flex items-center gap-1 font-bold text-indigo-500">
+            <span className="text-xs bg-indigo-50 px-2 py-1 rounded-md">{xp} XP</span>
           </div>
-
-          <div className="flex items-center gap-1.5 font-bold text-rose-500 text-sm bg-rose-50 px-3 py-1.5 rounded-xl">
-            <Heart size={18} className="fill-rose-500" />
-            <span className="text-base">∞</span>
+          <div className="flex items-center gap-1 font-bold text-rose-500">
+            <Heart size={20} className="fill-rose-500" />
+            <span className="text-lg">∞</span>
           </div>
-
-          <button 
-            onClick={() => setIsSettingsOpen(true)}
-            className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors"
-          >
-            <SettingsIcon size={20} />
-          </button>
         </div>
-      </header>
+      </aside>
 
-      <div className="flex flex-1 overflow-hidden">
-        <aside className="w-64 bg-white border-r border-slate-200 p-4 flex flex-col gap-2 shrink-0">
-          <button
-            onClick={() => setActiveTab('learn')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-2xl font-bold transition-all ${
-              activeTab === 'learn' 
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' 
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <BookOpen size={20} />
-            <span>{isSpanish ? 'Ruta de Aprendizaje' : 'Learn Path'}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('speech')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-2xl font-bold transition-all ${
-              activeTab === 'speech' 
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' 
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Mic size={20} />
-            <span>{isSpanish ? 'Arena de Voz' : 'Speech Arena'}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('grammar')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-2xl font-bold transition-all ${
-              activeTab === 'grammar' 
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' 
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <Swords size={20} />
-            <span>{isSpanish ? 'Batalla Gramatical' : 'Grammar Battle'}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('chat')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-2xl font-bold transition-all ${
-              activeTab === 'chat' 
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' 
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <MessageSquare size={20} />
-            <span>{isSpanish ? 'Chat con Avatar' : 'Free Chat AI'}</span>
-          </button>
-
-          <button
-            onClick={() => setActiveTab('progress')}
-            className={`flex items-center gap-3 px-4 py-3 rounded-2xl font-bold transition-all ${
-              activeTab === 'progress' 
-                ? 'bg-indigo-600 text-white shadow-md shadow-indigo-100' 
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
-          >
-            <BarChart3 size={20} />
-            <span>{isSpanish ? 'Progreso' : 'Progress'}</span>
-          </button>
-        </aside>
-
-        <main className="flex-1 overflow-y-auto p-8">
-          {activeTab === 'learn' && <LearnPath />}
-          {activeTab === 'speech' && <SpeechArena />}
-          {activeTab === 'grammar' && <GrammarBattle />}
-          {activeTab === 'progress' && <Stats />}
-          {activeTab === 'chat' && (
-            <div className="max-w-3xl mx-auto bg-white p-8 rounded-2xl shadow-sm border border-slate-100 text-center">
-              <h2 className="text-2xl font-black text-slate-800 mb-2">
-                {isSpanish ? 'Chat Abierto con el Avatar' : 'Free Chat Avatar'}
-              </h2>
-              <p className="text-slate-500 mb-6">
-                {isSpanish ? 'Conversa libremente con tu guía de IA en cualquier idioma.' : 'Chat freely with your AI guide in any language.'}
-              </p>
-              <div className="p-12 bg-indigo-50/50 rounded-2xl border-2 border-dashed border-indigo-200 text-indigo-700 font-medium">
-                {isSpanish ? 'Módulo de Avatar Conversacional Activo.' : 'Conversational Avatar Module Active.'}
-              </div>
-            </div>
-          )}
-        </main>
-      </div>
-
-      {isSettingsOpen && <Settings onClose={() => setIsSettingsOpen(false)} />}
+      {/* Main Content Area */}
+      <main className="flex-1 p-8 overflow-y-auto">
+        {activeTab === 'learn' && <LearnPath />}
+        {activeTab === 'speech' && (
+          <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border border-slate-200">
+            <h2 className="text-xl font-bold text-slate-800 mb-2">Speech Arena</h2>
+            <p className="text-slate-500">Práctica tu pronunciación interactiva en tiempo real.</p>
+          </div>
+        )}
+        {activeTab === 'grammar' && (
+          <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border border-slate-200">
+            <h2 className="text-xl font-bold text-slate-800 mb-2">Grammar Battle</h2>
+            <p className="text-slate-500">Desafíos rápidos de gramática en inglés.</p>
+          </div>
+        )}
+        {activeTab === 'stats' && (
+          <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border border-slate-200">
+            <h2 className="text-xl font-bold text-slate-800 mb-2">Progreso General</h2>
+            <p className="text-slate-500">XP acumulado: {xp} | Vidas: Infinitas (∞)</p>
+          </div>
+        )}
+      </main>
     </div>
   );
 }
