@@ -87,18 +87,18 @@ function LingoApp() {
         {activeTab === 'speech' && (
           <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border border-slate-200">
             <h2 className="text-xl font-bold text-slate-800 mb-2">Speech Arena</h2>
-            <p className="text-slate-500">Práctica tu pronunciación interactiva en tiempo real.</p>
+            <p className="text-slate-500">Prática de pronúncia interativa em tempo real.</p>
           </div>
         )}
         {activeTab === 'grammar' && (
           <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border border-slate-200">
             <h2 className="text-xl font-bold text-slate-800 mb-2">Grammar Battle</h2>
-            <p className="text-slate-500">Desafíos rápidos de gramática en inglés.</p>
+            <p className="text-slate-500">Desafios rápidos de gramática em inglês.</p>
           </div>
         )}
         {activeTab === 'stats' && (
           <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border border-slate-200">
-            <h2 className="text-xl font-bold text-slate-800 mb-2">Progreso General</h2>
+            <h2 className="text-xl font-bold text-slate-800 mb-2">Progresso Geral</h2>
             <p className="text-slate-500">XP acumulado: {xp} | Vidas: Infinitas (∞)</p>
           </div>
         )}
