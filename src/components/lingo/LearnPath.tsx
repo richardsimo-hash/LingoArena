@@ -1,113 +1,75 @@
-import React, { useState } from 'react';
-import { useLingoStore } from '@/lib/lingo/store';
-import { getUnitsForLanguages, Exercise } from '@/lib/lingo/content';
-import { ArrowRight, Heart } from 'lucide-react';
+import React from 'react';
+import { Flame, CheckCircle, Lock } from 'lucide-react';
 
-export const LearnPath = () => {
-  const { addXp } = useLingoStore();
-  const units = getUnitsForLanguages('es', 'en');
-  
-  const [activeExercise, setActiveExercise] = useState<Exercise | null>(null);
-  const [selectedOption, setSelectedOption] = useState<string | null>(null);
-  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
-
-  const handleSelectOption = (option: string) => {
-    if (!activeExercise) return;
-    setSelectedOption(option);
-    const correct = option === activeExercise.correctAnswer;
-    setIsCorrect(correct);
-    if (correct) {
-      addXp(10);
-    }
-  };
-
-  const handleNext = () => {
-    setActiveExercise(null);
-    setSelectedOption(null);
-    setIsCorrect(null);
-  };
-
-  if (activeExercise) {
-    return (
-      <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl shadow-sm mt-8 border border-slate-100">
-        <div className="flex justify-between items-center mb-6">
-          <button 
-            onClick={() => setActiveExercise(null)}
-            className="text-slate-400 hover:text-slate-600 font-medium"
-          >
-            ← Volver a la Ruta
-          </button>
-          
-          {/* Force Infinite Hearts Badge */}
-          <div className="flex items-center gap-1.5 font-bold text-rose-500 text-sm bg-rose-50 px-3 py-1.5 rounded-xl">
-            <Heart size={18} className="fill-rose-500" />
-            <span className="text-base">∞</span>
-          </div>
-        </div>
-
-        <h2 className="text-xl font-bold text-slate-800 mb-6">{activeExercise.prompt}</h2>
-
-        <div className="space-y-3 mb-8">
-          {activeExercise.options?.map((opt, idx) => {
-            const isSelected = selectedOption === opt;
-            let btnStyle = "border-slate-200 hover:border-indigo-500 text-slate-700 bg-white";
-            if (isSelected) {
-              if (isCorrect) btnStyle = "border-emerald-500 bg-emerald-50 text-emerald-800";
-              else btnStyle = "border-rose-500 bg-rose-50 text-rose-800";
-            }
-            return (
-              <button
-                key={idx}
-                onClick={() => !selectedOption && handleSelectOption(opt)}
-                className={`w-full p-4 text-left border-2 rounded-xl font-medium transition-all shadow-sm ${btnStyle}`}
-              >
-                {opt}
-              </button>
-            );
-          })}
-        </div>
-
-        {selectedOption && (
-          <div className="flex justify-between items-center p-4 bg-slate-50 rounded-xl">
-            <span className={`font-bold ${isCorrect ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {isCorrect ? "¡Correcto! 🎉" : "Incorrecto. Intenta de nuevo."}
-            </span>
-            <button
-              onClick={handleNext}
-              className="px-6 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition-colors flex items-center gap-2"
-            >
-              Siguiente <ArrowRight size={18} />
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  }
+export default function LearnPath() {
+  const units = [
+    { id: 1, title: 'Unidad 1: Fundamentos', status: 'completed', description: 'Saludos y presentaciones básicas' },
+    { id: 2, title: 'Unidad 2: Comida y Restaurantes', status: 'current', description: 'Pedir platos y hablar de preferencias' },
+    { id: 3, title: 'Unidad 3: Viajes y Direcciones', status: 'locked', description: 'Preguntar por el camino y transportes' },
+    { id: 4, title: 'Unidad 4: Negocios y Trabajo', status: 'locked', description: 'Vocabulario profesional y reuniones' },
+  ];
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <h1 className="text-2xl font-black text-slate-800 mb-2">Ruta de Aprendizaje</h1>
-      <p className="text-slate-500 mb-8">Selecciona cualquier lección libremente a tu propio ritmo.</p>
+    <div className="max-w-3xl mx-auto space-y-6">
+      <div className="flex items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+        <div>
+          <h2 className="text-2xl font-black text-slate-800">Ruta de Aprendizaje</h2>
+          <p className="text-slate-500">Completa lecciones para ganar XP y mantener tu racha.</p>
+        </div>
+        <div className="flex items-center gap-2 bg-amber-50 text-amber-700 px-4 py-2 rounded-xl font-bold">
+          <Flame className="w-5 h-5 fill-amber-500" />
+          <span>¡Sigue así!</span>
+        </div>
+      </div>
 
-      <div className="space-y-6">
-        {units.map((unit) => (
-          <div key={unit.id} className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm">
-            <h3 className="text-lg font-bold text-slate-800">{unit.title}</h3>
-            <p className="text-sm text-slate-500 mb-4">{unit.description}</p>
-            <div className="flex gap-3 flex-wrap">
-              {unit.lessons.map((lesson, lIdx) => (
-                <button
-                  key={lIdx}
-                  onClick={() => setActiveExercise(lesson[0])}
-                  className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center gap-2"
-                >
-                  Lección {lIdx + 1}
+      <div className="space-y-4">
+        {units.map((unit, index) => (
+          <div
+            key={unit.id}
+            className={`p-6 rounded-2xl border transition-all flex items-center justify-between ${
+              unit.status === 'current'
+                ? 'bg-indigo-50 border-indigo-300 shadow-md ring-2 ring-indigo-500/20'
+                : unit.status === 'completed'
+                ? 'bg-white border-emerald-200'
+                : 'bg-slate-50 border-slate-200 opacity-75'
+            }`}
+          >
+            <div className="flex items-center gap-4">
+              <div
+                className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${
+                  unit.status === 'current'
+                    ? 'bg-indigo-600 text-white'
+                    : unit.status === 'completed'
+                    ? 'bg-emerald-500 text-white'
+                    : 'bg-slate-200 text-slate-500'
+                }`}
+              >
+                {unit.status === 'completed' ? <CheckCircle className="w-6 h-6" /> : unit.status === 'locked' ? <Lock className="w-6 h-6" /> : index + 1}
+              </div>
+              <div>
+                <h3 className="font-bold text-slate-800 text-lg">{unit.title}</h3>
+                <p className="text-sm text-slate-500">{unit.description}</p>
+              </div>
+            </div>
+
+            <div>
+              {unit.status === 'current' && (
+                <button className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all">
+                  Continuar
                 </button>
-              ))}
+              )}
+              {unit.status === 'completed' && (
+                <span className="text-emerald-600 font-bold text-sm bg-emerald-50 px-3 py-1.5 rounded-lg">
+                  Completado
+                </span>
+              )}
+              {unit.status === 'locked' && (
+                <span className="text-slate-400 font-medium text-sm">Bloqueado</span>
+              )}
             </div>
           </div>
         ))}
       </div>
     </div>
   );
-};
+}

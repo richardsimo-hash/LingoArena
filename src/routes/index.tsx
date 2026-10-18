@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useLingoStore } from '../lib/lingo/store';
-import LearnPath from '@/components/lingo/learnpath';
+import LearnPath from '../components/lingo/learnpath';
 import { BookOpen, Mic, Swords, BarChart2, Heart, Flame } from 'lucide-react';
 
 export const Route = createFileRoute('/')({
