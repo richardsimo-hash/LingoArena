@@ -30,7 +30,7 @@ function LingoApp() {
               }`}
             >
               <BookOpen size={20} />
-              <span>LEARN PATH</span>
+              <span>APRENDIZAJE</span>
             </button>
 
             <button
@@ -40,7 +40,7 @@ function LingoApp() {
               }`}
             >
               <Mic size={20} />
-              <span>SPEECH ARENA</span>
+              <span>VOZ Y ARENA</span>
             </button>
 
             <button
@@ -50,7 +50,7 @@ function LingoApp() {
               }`}
             >
               <Swords size={20} />
-              <span>GRAMMAR BATTLE</span>
+              <span>BATALLA GRAMATICAL</span>
             </button>
 
             <button
@@ -60,7 +60,7 @@ function LingoApp() {
               }`}
             >
               <BarChart2 size={20} />
-              <span>PROGRESS</span>
+              <span>PROGRESO</span>
             </button>
           </nav>
         </div>
@@ -86,19 +86,19 @@ function LingoApp() {
         {activeTab === 'learn' && <LearnPath />}
         {activeTab === 'speech' && (
           <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border border-slate-200">
-            <h2 className="text-xl font-bold text-slate-800 mb-2">Speech Arena</h2>
-            <p className="text-slate-500">Prática de pronúncia interativa em tempo real.</p>
+            <h2 className="text-xl font-bold text-slate-800 mb-2">Práctica de Voz</h2>
+            <p className="text-slate-500">Práctica tu pronunciación interactiva en tiempo real.</p>
           </div>
         )}
         {activeTab === 'grammar' && (
           <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border border-slate-200">
-            <h2 className="text-xl font-bold text-slate-800 mb-2">Grammar Battle</h2>
-            <p className="text-slate-500">Desafios rápidos de gramática em inglês.</p>
+            <h2 className="text-xl font-bold text-slate-800 mb-2">Batalla de Gramática</h2>
+            <p className="text-slate-500">Desafíos rápidos de gramática en inglés.</p>
           </div>
         )}
         {activeTab === 'stats' && (
           <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border border-slate-200">
-            <h2 className="text-xl font-bold text-slate-800 mb-2">Progresso Geral</h2>
+            <h2 className="text-xl font-bold text-slate-800 mb-2">Progreso General</h2>
             <p className="text-slate-500">XP acumulado: {xp} | Vidas: Infinitas (∞)</p>
           </div>
         )}
