@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useLingoStore } from '@/lib/lingo/store';
 import { getUnitsForLanguages, Exercise } from '@/lib/lingo/content';
-import { Volume2, CheckCircle2, ArrowRight, ShieldAlert } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 
 export const LearnPath = () => {
   const { nativeLanguage, targetLanguage, addXp } = useLingoStore();
@@ -27,8 +27,9 @@ export const LearnPath = () => {
     setIsCorrect(null);
   };
 
+  const isSpanish = nativeLanguage === 'es' || nativeLanguage === 'Spanish' || nativeLanguage === 'español';
+
   if (activeExercise) {
-    const isSpanish = nativeLanguage === 'es' || nativeLanguage === 'Spanish';
     return (
       <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl shadow-sm mt-8 border border-slate-100">
         <div className="flex justify-between items-center mb-6">
@@ -85,10 +86,10 @@ export const LearnPath = () => {
   return (
     <div className="max-w-4xl mx-auto p-6">
       <h1 className="text-2xl font-black text-slate-800 mb-2">
-        {nativeLanguage === 'es' || nativeLanguage === 'Spanish' ? "Ruta de Aprendizaje" : "Learning Path"}
+        {isSpanish ? "Ruta de Aprendizaje" : "Learning Path"}
       </h1>
       <p className="text-slate-500 mb-8">
-        {nativeLanguage === 'es' || nativeLanguage === 'Spanish' ? "Selecciona cualquier lección libremente a tu propio ritmo." : "Select any lesson freely at your own pace."}
+        {isSpanish ? "Selecciona cualquier lección libremente a tu propio ritmo." : "Select any lesson freely at your own pace."}
       </p>
 
       <div className="space-y-6">
@@ -103,7 +104,7 @@ export const LearnPath = () => {
                   onClick={() => setActiveExercise(lesson[0])}
                   className="px-5 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl shadow-md transition-all flex items-center gap-2"
                 >
-                  {nativeLanguage === 'es' || nativeLanguage === 'Spanish' ? `Lección ${lIdx + 1}` : `Lesson ${lIdx + 1}`}
+                  {isSpanish ? `Lección ${lIdx + 1}` : `Lesson ${lIdx + 1}`}
                 </button>
               ))}
             </div>

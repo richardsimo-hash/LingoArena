@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { createFileRoute } from '@tanstack/react-router';
 import { useLingoStore } from '@/lib/lingo/store';
 import { LearnPath } from '@/components/lingo/LearnPath';
 import { SpeechArena } from '@/components/lingo/SpeechArena';
@@ -17,7 +18,11 @@ import {
   MessageSquare
 } from 'lucide-react';
 
-export default function LingoArenaApp() {
+export const Route = createFileRoute('/')({
+  component: LingoArenaApp,
+});
+
+function LingoArenaApp() {
   const [activeTab, setActiveTab] = useState<'learn' | 'speech' | 'grammar' | 'progress' | 'chat'>('learn');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   
@@ -26,7 +31,6 @@ export default function LingoArenaApp() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      {/* Top Navigation Bar */}
       <header className="bg-white border-b border-slate-200 h-16 px-6 flex items-center justify-between sticky top-0 z-30 shadow-xs">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-black text-indigo-600 tracking-tight">LingoArena</h1>
@@ -35,9 +39,7 @@ export default function LingoArenaApp() {
           </span>
         </div>
 
-        {/* Stats & Quick Actions */}
         <div className="flex items-center gap-6">
-          {/* Target Language Selector */}
           <select 
             value={targetLanguage} 
             onChange={(e) => setTargetLanguage(e.target.value)}
@@ -61,7 +63,6 @@ export default function LingoArenaApp() {
             <span>{xp}</span>
           </div>
 
-          {/* Vidas Infinitas */}
           <div className="flex items-center gap-1.5 font-bold text-rose-500 text-sm bg-rose-50 px-3 py-1.5 rounded-xl">
             <Heart size={18} className="fill-rose-500" />
             <span className="text-base">∞</span>
@@ -70,16 +71,13 @@ export default function LingoArenaApp() {
           <button 
             onClick={() => setIsSettingsOpen(true)}
             className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors"
-            title="Settings"
           >
             <SettingsIcon size={20} />
           </button>
         </div>
       </header>
 
-      {/* Main Content Layout */}
       <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar Navigation */}
         <aside className="w-64 bg-white border-r border-slate-200 p-4 flex flex-col gap-2 shrink-0">
           <button
             onClick={() => setActiveTab('learn')}
@@ -142,7 +140,6 @@ export default function LingoArenaApp() {
           </button>
         </aside>
 
-        {/* Dynamic Workspace Area */}
         <main className="flex-1 overflow-y-auto p-8">
           {activeTab === 'learn' && <LearnPath />}
           {activeTab === 'speech' && <SpeechArena />}
@@ -164,7 +161,6 @@ export default function LingoArenaApp() {
         </main>
       </div>
 
-      {/* Settings Modal Component */}
       {isSettingsOpen && <Settings onClose={() => setIsSettingsOpen(false)} />}
     </div>
   );
