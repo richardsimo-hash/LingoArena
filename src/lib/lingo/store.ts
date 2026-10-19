@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { NATIVES, NODES_PER_UNIT, TARGETS, UNITS } from "./content";
+import { NATIVES, NODES_PER_UNIT, PERSONAS, TARGETS, UNITS } from "./content";
 import type { NativeLang, PersonaId, TargetLang } from "./content";
 
 /** `done` holds the indexes of finished lessons (any order — nothing is locked). */
@@ -40,6 +40,13 @@ function dayDiff(a: string, b: string) { return Math.round((Date.parse(b) - Date
 
 const isNative = (v: unknown): v is NativeLang => NATIVES.some((n) => n.id === v);
 const isTarget = (v: unknown): v is TargetLang => TARGETS.some((t) => t.id === v);
+const PERSONA_ALIASES: Record<string, PersonaId> = { "tour-guide": "guide", "tour_guide": "guide", sarcastic: "barista", strict: "gatekeeper" };
+const isPersona = (v: unknown): v is PersonaId => PERSONAS.some((p) => p.id === v);
+function parsePersona(v: unknown): PersonaId {
+  if (isPersona(v)) return v;
+  if (typeof v === "string" && PERSONA_ALIASES[v]) return PERSONA_ALIASES[v];
+  return "barista";
+}
 
 /** Pick a native language from the browser when nothing is saved yet. */
 export function detectNative(): NativeLang {
@@ -92,7 +99,9 @@ function sanitize(raw: unknown): State {
       : Array.from({ length: Math.min(p.completed ?? 0, TOTAL_NODES) }, (_, i) => i); // old format
     progress[lang] = { done: [...new Set(done)], completed: new Set(done).size };
   }
-  return { ...DEFAULT, ...(r as Partial<State>), native, target, progress };
+  const hearts = typeof r.hearts === "number" && Number.isFinite(r.hearts) ? Math.max(0, Math.min(MAX_HEARTS, r.hearts)) : DEFAULT.hearts;
+  const persona = parsePersona((r as { persona?: unknown }).persona);
+  return { ...DEFAULT, ...(r as Partial<State>), native, target, persona, hearts, progress };
 }
 
 export function useLingo() {
