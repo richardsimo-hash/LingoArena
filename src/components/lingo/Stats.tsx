@@ -1,7 +1,7 @@
-import { Flame, Gem, Heart, Trophy, Mic, Swords, Zap } from "lucide-react";
+import { Flame, Gem, Trophy, Mic, Swords, Zap } from "lucide-react";
 import { TARGETS } from "@/lib/lingo/content";
 import { langName, makeT } from "@/lib/lingo/i18n";
-import { levelFromXp, MAX_HEARTS, TOTAL_NODES, type Lingo } from "@/lib/lingo/store";
+import { levelFromXp, TOTAL_NODES, type Lingo } from "@/lib/lingo/store";
 import { Card } from "./ui";
 
 export function Stats({ lingo }: { lingo: Lingo }) {
@@ -12,7 +12,6 @@ export function Stats({ lingo }: { lingo: Lingo }) {
   const tiles = [
     { icon: Flame, label: t("streak"), value: s.streak, cls: "text-flame" },
     { icon: Gem, label: t("totalXp"), value: s.xp, cls: "text-gem" },
-    { icon: Heart, label: t("hearts"), value: `${s.hearts}/${MAX_HEARTS}`, cls: "text-heart" },
     { icon: Swords, label: t("bossStat"), value: s.grammarWins, cls: "text-primary" },
     { icon: Mic, label: t("bestAcc"), value: `${s.bestPron}%`, cls: "text-secondary" },
     { icon: Zap, label: t("rapidBest"), value: `${s.rapidBest} XP`, cls: "text-flame" },
@@ -41,11 +40,12 @@ export function Stats({ lingo }: { lingo: Lingo }) {
         <div className="space-y-3">
           {TARGETS.filter((x) => x.id !== s.native).map((x) => {
             const c = s.progress[x.id]?.completed ?? 0;
+            const available = TOTAL_NODES + Math.max(1, lvl - 1) * 3;
             return (
               <div key={x.id} className="flex items-center gap-3">
                 <span className="text-2xl" title={langName(x.id, s.native)}>{x.flag}</span>
-                <div className="h-3 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${(c / TOTAL_NODES) * 100}%` }} /></div>
-                <span className="w-12 text-right text-sm font-bold">{c}/{TOTAL_NODES}</span>
+                <div className="h-3 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (c / available) * 100)}%` }} /></div>
+                <span className="w-16 text-right text-sm font-bold">{c}/{available}+</span>
               </div>
             );
           })}

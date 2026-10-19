@@ -40,10 +40,8 @@ export function GrammarBattle({ lingo, reward, fail }: { lingo: Lingo; reward: (
     if (r.exact) {
       const xp = reveal ? 5 : attempts === 0 ? 15 : 20;
       setDone("win"); setAnim("animate-pop"); sfx.correct(); reward(xp); update({ grammarWins: s.grammarWins + 1 });
-    } else if (attempts === 0) {
-      setAttempts(1); setAnim("animate-shake"); sfx.wrong();
     } else {
-      setDone("lose"); setAnim("animate-shake"); fail();
+      setAttempts((n) => n + 1); setAnim("animate-shake"); fail();
     }
     setTimeout(() => setAnim(""), 500);
   };
@@ -95,7 +93,7 @@ export function GrammarBattle({ lingo, reward, fail }: { lingo: Lingo; reward: (
 
       {done && (
         <div className={cn("space-y-3 rounded-3xl p-5 animate-in slide-in-from-bottom-4", done === "win" ? "bg-success-soft" : "bg-danger-soft")}>
-          <p className="text-xl font-extrabold">{done === "win" ? (attempts ? t("corrected") : t("flawless")) : t("bossWins")}</p>
+          <p className="text-xl font-extrabold">{done === "win" ? (attempts ? t("corrected") : t("flawless")) : ""}</p>
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-xs font-bold uppercase opacity-70">{t("model")}</p>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, PhoneOff, Clock } from "lucide-react";
+import { Send, PhoneOff, Clock, Headphones, Mic, MicOff } from "lucide-react";
 import { PERSONAS, TARGETS } from "@/lib/lingo/content";
 import { chatReply, localChat } from "@/lib/lingo/chat.functions";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
@@ -20,7 +20,7 @@ function parse(raw: string): { reply: string; correction: string } {
   }
 }
 const mmss = (n: number) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
-const DURATIONS = [3, 5, 10, 0]; // 0 = no limit
+const DURATIONS = [0, 3, 5, 10]; // 0 = unlimited; timed sessions are optional
 
 export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void }) {
   const { s } = lingo;
@@ -28,7 +28,9 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   const tg = TARGETS.find((x) => x.id === s.target)!;
   const persona = PERSONAS.find((p) => p.id === s.persona)!;
   const [phase, setPhase] = useState<"setup" | "chat" | "summary">("setup");
-  const [minutes, setMinutes] = useState(5);
+  const [minutes, setMinutes] = useState(0);
+  const [handsFree, setHandsFree] = useState(true);
+  const handsFreeRef = useRef(true);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -40,7 +42,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   const msgsRef = useRef<Msg[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
   const phaseRef = useRef(phase);
-  msgsRef.current = msgs; phaseRef.current = phase;
+  msgsRef.current = msgs; phaseRef.current = phase; handsFreeRef.current = handsFree;
 
   useEffect(() => () => stopSpeaking(), []);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
@@ -63,6 +65,8 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     if (turns > 0) reward(Math.min(30, turns * 3));
     setPhase("summary");
   };
+
+  const sendRef = useRef<(text: string) => void>(() => undefined);
 
   const ask = async (history: Msg[]) => {
     setBusy(true);
@@ -93,7 +97,18 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     const base = history.map((m, i) => (correction && i === history.length - 1 && m.role === "user" ? { ...m, correction } : m));
     setMsgs([...base, { role: "assistant", content: reply }]);
     setBusy(false);
-    speak(reply, tg.locale, s.rate, { onStart: () => setTalking(true), onEnd: () => setTalking(false) });
+    speak(reply, tg.locale, s.rate, {
+      onStart: () => setTalking(true),
+      onEnd: () => {
+        setTalking(false);
+        // In hands-free mode, open the next listening turn automatically after the avatar finishes.
+        if (handsFreeRef.current && phaseRef.current === "chat") {
+          window.setTimeout(() => {
+            if (handsFreeRef.current && phaseRef.current === "chat") speech.listen((text) => sendRef.current(text), setInput, false);
+          }, 250);
+        }
+      },
+    });
   };
 
   const begin = () => {
@@ -109,13 +124,14 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     setMsgs(history); setInput("");
     void ask(history);
   };
+  sendRef.current = send;
 
   if (phase === "setup") return (
     <div className="mx-auto max-w-xl space-y-5">
       <Card className="space-y-5 text-center">
         <div className="text-7xl">{persona.emoji}</div>
         <h2 className="text-3xl font-extrabold">{t("chatTitle")}</h2>
-        <p className="text-muted-foreground">{t("chatIntro")}</p>
+        <p className="text-muted-foreground">Practica sin límite de tiempo. Activa el modo manos libres para conversar sin pulsar el micrófono en cada turno.</p>
         <div className="grid grid-cols-4 gap-2">
           {DURATIONS.map((d) => (
             <button key={d} onClick={() => setMinutes(d)}
@@ -124,6 +140,10 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
             </button>
           ))}
         </div>
+        <button onClick={() => setHandsFree((v) => !v)} className={cn("flex w-full items-center justify-center gap-2 rounded-2xl border-2 p-3 font-extrabold", handsFree ? "border-primary bg-accent text-accent-foreground" : "border-border") }>
+          {handsFree ? <Headphones className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+          {handsFree ? "Manos libres activado" : "Activar manos libres"}
+        </button>
         <Btn className="w-full" onClick={begin}>{t("startChat")}</Btn>
       </Card>
     </div>
@@ -146,7 +166,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-4">
       <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1 font-extrabold"><Clock className="h-5 w-5" />{minutes > 0 ? mmss(Math.max(0, left)) : mmss(elapsed)}</span>
+        <span className="flex items-center gap-1 font-extrabold"><Clock className="h-5 w-5" />{mmss(elapsed)} · sin límite</span>
         <Btn variant="ghost" className="px-3 py-2" onClick={finish}><PhoneOff className="mr-1 inline h-4 w-4" />{t("endChat")}</Btn>
       </div>
 
@@ -177,6 +197,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
         <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send(input)} placeholder={t("typeMsg")}
           className="flex-1 rounded-2xl border-2 border-border bg-card p-3 font-bold outline-none focus:border-primary" />
         {speech.supported && <MicButton listening={speech.listening} onClick={() => (speech.listening ? speech.stop() : speech.listen(send, setInput))} />}
+        <Btn variant="ghost" aria-label="Toggle hands-free" onClick={() => setHandsFree((v) => !v)} className="px-3">{handsFree ? <MicOff className="h-4 w-4" /> : <Headphones className="h-4 w-4" />}</Btn>
         <Btn aria-label={t("send")} onClick={() => send(input)} disabled={!input.trim() || busy}><Send className="h-4 w-4" /></Btn>
       </div>
     </div>

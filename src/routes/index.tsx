@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Flame, Gem, Heart, Settings as SettingsIcon, Map, Mic, Swords, BarChart3, MessageCircle } from "lucide-react";
+import { Flame, Gem, Settings as SettingsIcon, Map, Mic, Swords, BarChart3, MessageCircle } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { NATIVES, TARGETS, type NativeLang, type TargetLang } from "@/lib/lingo/content";
 import { useLingo, levelFromXp } from "@/lib/lingo/store";
@@ -24,7 +24,7 @@ type Tab = (typeof TABS)[number]["id"];
 
 export default function App() {
   const lingo = useLingo();
-  const { s, loaded, update, addXp, loseHeart } = lingo;
+  const { s, loaded, update, addXp } = lingo;
   const t = makeT(s.native);
   const [tab, setTab] = useState<Tab>("learn");
   const [showSettings, setShowSettings] = useState(false);
@@ -38,7 +38,7 @@ export default function App() {
     if (r.levelUp) { setTimeout(sfx.levelUp, 250); toast.success(`🏆 ${t("levelUp")} ${levelFromXp(s.xp + xp)}`); }
     else if (r.streakUp) { setTimeout(sfx.streak, 250); toast(`🔥 ${t("streakUp")}`); }
   };
-  const fail = () => { loseHeart(); sfx.wrong(); };
+  const fail = () => { sfx.wrong(); };
   const go = (id: Tab) => { stopSpeaking(); setTab(id); };
 
   if (!loaded) return <div className="min-h-screen bg-background" />;
@@ -79,7 +79,6 @@ export default function App() {
           <div className="flex items-center gap-3 font-extrabold sm:gap-5">
             <span className="flex items-center gap-1 text-flame" title={t("streak")}><Flame className="h-6 w-6 fill-current" />{s.streak}</span>
             <span key={bump} className="flex items-center gap-1 text-gem animate-pop" title="XP"><Gem className="h-6 w-6" />{s.xp}</span>
-            <span className="flex items-center gap-1 text-heart" title={t("hearts")}><Heart className="h-6 w-6 fill-current" />{s.hearts}</span>
             <button onClick={() => update({ rate: s.rate === 1 ? 0.8 : 1 })} className="rounded-lg border-2 border-border px-2 py-0.5 text-xs" title={t("speed")}>{s.rate === 1 ? "1.0×" : "0.8×"}</button>
             <button aria-label={t("settings")} onClick={() => setShowSettings(true)} className="md:hidden"><SettingsIcon className="h-6 w-6 text-muted-foreground" /></button>
           </div>

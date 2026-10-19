@@ -45,11 +45,11 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
   const lastRef = useRef("");
   useEffect(() => { setSupported(!!getRecognition()); return () => { try { recRef.current?.abort(); } catch {} }; }, []);
 
-  const listen = (onDone: (text: string) => void, onInterim?: (text: string) => void) => {
+  const listen = (onDone: (text: string) => void, onInterim?: (text: string) => void, continuous = true) => {
     const rec = getRecognition();
     if (!rec) { setSupported(false); return; }
     stopSpeaking(); // don't let the mic hear the bot
-    rec.lang = locale; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
+    rec.lang = locale; rec.interimResults = true; rec.continuous = continuous; rec.maxAlternatives = 1;
     lastRef.current = "";
     let delivered = false;
     const finish = () => {

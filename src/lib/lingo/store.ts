@@ -22,7 +22,8 @@ export type State = {
   rapidBest: number;
 };
 
-export const MAX_HEARTS = 5;
+export const MAX_HEARTS = Number.POSITIVE_INFINITY;
+const MAX_TRACKED_NODES = 1000000;
 const KEY = "lingoarena-v1";
 const LEGACY_KEYS = ["lingo-arena-force-reset-v99", "lingo-arena-storage", "lingoarena"];
 export const TOTAL_NODES = UNITS.length * NODES_PER_UNIT;
@@ -77,7 +78,7 @@ function readSaved(): unknown {
       target: st.target ?? st.targetLanguage,
       persona: st.persona ?? st.selectedPersona,
       xp: st.xp,
-      hearts: st.hearts === "∞" ? MAX_HEARTS : st.hearts,
+      hearts: Number.POSITIVE_INFINITY,
       streak: st.streak,
       dark: st.dark,
     };
@@ -95,11 +96,11 @@ function sanitize(raw: unknown): State {
   for (const [lang, p] of Object.entries(r.progress ?? {})) {
     if (!isTarget(lang) || !p) continue;
     const done = Array.isArray(p.done)
-      ? p.done.filter((n) => Number.isInteger(n) && n >= 0 && n < TOTAL_NODES)
+      ? p.done.filter((n) => Number.isInteger(n) && n >= 0 && n < MAX_TRACKED_NODES)
       : Array.from({ length: Math.min(p.completed ?? 0, TOTAL_NODES) }, (_, i) => i); // old format
     progress[lang] = { done: [...new Set(done)], completed: new Set(done).size };
   }
-  const hearts = typeof r.hearts === "number" && Number.isFinite(r.hearts) ? Math.max(0, Math.min(MAX_HEARTS, r.hearts)) : DEFAULT.hearts;
+  const hearts = Number.POSITIVE_INFINITY;
   const persona = parsePersona((r as { persona?: unknown }).persona);
   return { ...DEFAULT, ...(r as Partial<State>), native, target, persona, hearts, progress };
 }
@@ -123,17 +124,6 @@ export function useLingo() {
     document.documentElement.lang = s.native;
   }, [s, loaded]);
 
-  // refill hearts: 1 per 10 minutes (hearts are a score indicator only; they never block anything)
-  useEffect(() => {
-    const id = setInterval(() => {
-      setS((p) => {
-        if (p.hearts >= MAX_HEARTS || !p.heartsRefillAt || Date.now() < p.heartsRefillAt) return p;
-        const h = p.hearts + 1;
-        return { ...p, hearts: h, heartsRefillAt: h < MAX_HEARTS ? Date.now() + 600000 : null };
-      });
-    }, 5000);
-    return () => clearInterval(id);
-  }, []);
 
   /** Keeps native/target always different, whichever one the caller changes. */
   const update = useCallback((patch: Partial<State>) => setS((p) => {
@@ -155,9 +145,8 @@ export function useLingo() {
     return { levelUp, streakUp };
   }, [s]);
 
-  const loseHeart = useCallback(() => setS((p) => ({
-    ...p, hearts: Math.max(0, p.hearts - 1), heartsRefillAt: p.heartsRefillAt ?? Date.now() + 600000,
-  })), []);
+  // Compatibility no-op: mistakes never consume lives or block learning.
+  const loseHeart = useCallback(() => undefined, []);
 
   const completeNode = useCallback((idx: number) => setS((p) => {
     const cur = p.progress[p.target]?.done ?? [];

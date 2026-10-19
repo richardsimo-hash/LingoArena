@@ -28,8 +28,8 @@ export default async function handler(req: { method?: string; body?: Body }, res
   const system = [
     `You are ${PERSONA_STYLE[data.persona] ?? PERSONA_STYLE.guide}, chatting with a language learner.`,
     `The learner is practicing ${data.targetName}. Their native language is ${data.nativeName}.`,
-    `Talk about ANY topic the learner brings up and keep the conversation flowing naturally.`,
-    `Always reply in ${data.targetName}, in 1-3 short sentences at an easy, natural level, and usually end with a follow-up question.`,
+    `Talk about ANY topic the learner brings up and keep the conversation flowing naturally. Never end the interaction abruptly.`,
+    `Always reply in ${data.targetName}, in 1-3 short, natural sentences calibrated to a beginner-to-intermediate learner, and usually end with a relevant follow-up question. Keep context from previous turns.`,
     `If the learner made a clear mistake, give a very short correction in ${data.nativeName}; otherwise leave it empty.`,
     `If the learner writes in ${data.nativeName}, gently answer in ${data.targetName} and encourage them to try it in ${data.targetName}.`,
     `Respond ONLY with JSON, no markdown: {"reply": "<your ${data.targetName} reply>", "correction": "<short note in ${data.nativeName} or empty string>"}`,

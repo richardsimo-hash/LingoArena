@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
-import { Check, Star, X, Heart } from "lucide-react";
+import { Check, Star, X, Sparkles } from "lucide-react";
 import { NODES_PER_UNIT, TARGETS, UNITS, nodeConcepts, unitConcepts, type Concept } from "@/lib/lingo/content";
 import { shuffle } from "@/lib/lingo/engine";
 import { makeT, unitTitle } from "@/lib/lingo/i18n";
 import { speak } from "@/lib/lingo/audio";
-import type { Lingo } from "@/lib/lingo/store";
+import { levelFromXp, type Lingo } from "@/lib/lingo/store";
 import { Btn, Card, SpeakButtons } from "./ui";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +19,8 @@ const OFFSET = [0, 56, -56];
 
 export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: number) => void; fail: () => void }) {
   const { s, done } = lingo;
+  // Each XP level adds another mixed-practice unit. All units remain accessible.
+  const visibleUnitCount = UNITS.length + Math.max(1, levelFromXp(s.xp) - 1);
   const t = makeT(s.native);
   const [lesson, setLesson] = useState<number | null>(null);
 
@@ -26,11 +28,14 @@ export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: 
 
   return (
     <div className="space-y-10 pb-10">
-      {UNITS.map((u, ui) => (
+      {Array.from({ length: visibleUnitCount }, (_, ui) => {
+        const u = UNITS[ui % UNITS.length]!;
+        const generated = ui >= UNITS.length;
+        return (
         <section key={ui}>
           <div className={cn("mb-6 rounded-3xl p-5", UNIT_STYLE[ui % UNIT_STYLE.length])}>
-            <p className="text-xs font-extrabold uppercase opacity-80">{t("unit")} {ui + 1}</p>
-            <h2 className="text-2xl font-extrabold">{u.emoji} {unitTitle(ui, s.native)}</h2>
+            <p className="text-xs font-extrabold uppercase opacity-80">{t("unit")} {ui + 1}{generated ? " · MIXED PRACTICE" : ""}</p>
+            <h2 className="text-2xl font-extrabold">{generated ? <><Sparkles className="mr-1 inline h-5 w-5" />{s.native === "es" ? "Práctica infinita" : "Endless practice"}</> : <>{u.emoji} {unitTitle(ui, s.native)}</>}</h2>
           </div>
           <div className="flex flex-col items-center gap-5">
             {Array.from({ length: NODES_PER_UNIT }).map((_, ni) => {
@@ -50,7 +55,8 @@ export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: 
             })}
           </div>
         </section>
-      ))}
+      );
+      })}
     </div>
   );
 }
@@ -63,11 +69,12 @@ function Lesson({ lingo, node, reward, fail, onExit }: { lingo: Lingo; node: num
   const locale = TARGETS.find((x) => x.id === s.target)!.locale;
   const unit = Math.floor(node / NODES_PER_UNIT);
   const nodeInUnit = node % NODES_PER_UNIT;
+  const contentUnit = unit % UNITS.length;
 
   // Each lesson owns its 3 concepts (never shared with another lesson or unit).
   const questions = useMemo<Q[]>(() => {
-    const pool = nodeConcepts(unit, nodeInUnit);
-    const unitPool = unitConcepts(unit);
+    const pool = nodeConcepts(contentUnit, nodeInUnit);
+    const unitPool = unitConcepts(contentUnit);
     return shuffle(pool).map((c, i) => {
       // Type A: prompt in NATIVE, options in TARGET.  Type B: prompt in TARGET (+audio), options in NATIVE.
       // Never print the answer in the other language on the same screen.
@@ -92,7 +99,7 @@ function Lesson({ lingo, node, reward, fail, onExit }: { lingo: Lingo; node: num
       }
       return { c, reverse, options: shuffle([c, ...distract]) };
     });
-  }, [s.target, s.native, unit, nodeInUnit, node]);
+  }, [s.target, s.native, contentUnit, nodeInUnit, node]);
 
   const [qi, setQi] = useState(0);
   const [picked, setPicked] = useState<string | null>(null);
@@ -118,7 +125,6 @@ function Lesson({ lingo, node, reward, fail, onExit }: { lingo: Lingo; node: num
       <div className="flex items-center gap-3">
         <button aria-label={t("exit")} onClick={onExit}><X className="h-7 w-7 text-muted-foreground" /></button>
         <div className="h-4 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${((qi + (picked ? 1 : 0)) / questions.length) * 100}%` }} /></div>
-        <span className="flex items-center gap-1 font-extrabold text-heart"><Heart className="h-5 w-5 fill-current" />{s.hearts}</span>
       </div>
       <h2 className="text-2xl font-extrabold">{q.reverse ? t("whatMean") : t("howSay")}</h2>
       <Card className={cn("flex items-center justify-between gap-3", anim)}>
