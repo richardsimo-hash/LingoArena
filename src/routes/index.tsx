@@ -1,105 +1,124 @@
-import React, { useState } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
-import { useLingoStore } from '../lib/lingo/store';
-import { LearnPath } from '@/components/lingo/LearnPath';
-import { BookOpen, Mic, Swords, BarChart2, Flame } from 'lucide-react';
+import { createFileRoute } from "@tanstack/react-router";
+import { useState } from "react";
+import { Flame, Gem, Heart, Settings as SettingsIcon, Map, Mic, Swords, BarChart3, MessageCircle } from "lucide-react";
+import { toast } from "sonner";
+import { Toaster } from "@/components/ui/sonner";
+import { NATIVES, TARGETS, type NativeLang, type TargetLang } from "@/lib/lingo/content";
+import { useLingo, levelFromXp } from "@/lib/lingo/store";
+import { langName, makeT, type K } from "@/lib/lingo/i18n";
+import { sfx, stopSpeaking } from "@/lib/lingo/audio";
+import { Settings } from "@/components/lingo/Settings";
+import { LearnPath } from "@/components/lingo/LearnPath";
+import { GrammarBattle } from "@/components/lingo/GrammarBattle";
+import { SpeechArena } from "@/components/lingo/SpeechArena";
+import { FreeChat } from "@/components/lingo/FreeChat";
+import { Stats } from "@/components/lingo/Stats";
+import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute('/')({
-  component: LingoApp,
+export const Route = createFileRoute("/")({
+  head: () => ({
+    meta: [
+      { title: "LingoArena AI — Gamified Language Battles" },
+      { name: "description", content: "Free, gamified language practice with speech duels, listening battles and free conversation with an AI avatar." },
+      { property: "og:title", content: "LingoArena AI — Gamified Language Battles" },
+      { property: "og:description", content: "Speak, battle and level up in 7 languages. Free forever, right in your browser." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
+    ],
+  }),
+  component: App,
 });
 
-function LingoApp() {
-  const [activeTab, setActiveTab] = useState<'learn' | 'speech' | 'grammar' | 'stats'>('learn');
-  const { xp, streak } = useLingoStore();
+const TABS = [
+  { id: "learn", key: "learn", icon: Map },
+  { id: "arena", key: "arena", icon: Mic },
+  { id: "grammar", key: "grammar", icon: Swords },
+  { id: "chat", key: "chat", icon: MessageCircle },
+  { id: "stats", key: "stats", icon: BarChart3 },
+] as const satisfies readonly { id: string; key: K; icon: unknown }[];
+type Tab = (typeof TABS)[number]["id"];
+
+function App() {
+  const lingo = useLingo();
+  const { s, loaded, update, addXp, loseHeart } = lingo;
+  const t = makeT(s.native);
+  const [tab, setTab] = useState<Tab>("learn");
+  const [showSettings, setShowSettings] = useState(false);
+  const [bump, setBump] = useState(0);
+  const target = TARGETS.find((x) => x.id === s.target)!;
+
+  const reward = (xp: number) => {
+    const r = addXp(xp);
+    sfx.correct();
+    setBump((b) => b + 1);
+    if (r.levelUp) { setTimeout(sfx.levelUp, 250); toast.success(`🏆 ${t("levelUp")} ${levelFromXp(s.xp + xp)}`); }
+    else if (r.streakUp) { setTimeout(sfx.streak, 250); toast(`🔥 ${t("streakUp")}`); }
+  };
+  const fail = () => { loseHeart(); sfx.wrong(); };
+  const go = (id: Tab) => { stopSpeaking(); setTab(id); };
+
+  if (!loaded) return <div className="min-h-screen bg-background" />;
+
+  // Remount feature screens when the language pair changes so everything reloads in the new languages.
+  const langKey = `${s.native}-${s.target}`;
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      {/* Sidebar Navigation */}
-      <aside className="w-64 bg-white border-r border-slate-200 p-6 flex flex-col justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-8">
-            <h1 className="text-2xl font-black text-indigo-600">LingoArena</h1>
-            <span className="text-xs font-bold bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">AI</span>
-          </div>
+    <div className="min-h-screen pb-24 md:pb-0 md:pl-60">
+      <Toaster position="top-center" />
+      {(!s.configured || showSettings) && <Settings lingo={lingo} onClose={() => setShowSettings(false)} />}
 
-          <nav className="space-y-2">
-            <button
-              onClick={() => setActiveTab('learn')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${
-                activeTab === 'learn' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <BookOpen className="w-5 h-5" />
-              Aprender
-            </button>
-            <button
-              onClick={() => setActiveTab('speech')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${
-                activeTab === 'speech' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Mic className="w-5 h-5" />
-              Pronunciación
-            </button>
-            <button
-              onClick={() => setActiveTab('grammar')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${
-                activeTab === 'grammar' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <Swords className="w-5 h-5" />
-              Gramática
-            </button>
-            <button
-              onClick={() => setActiveTab('stats')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors ${
-                activeTab === 'stats' ? 'bg-indigo-50 text-indigo-600' : 'text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              <BarChart2 className="w-5 h-5" />
-              Progreso
-            </button>
-          </nav>
-        </div>
-
-        {/* User Stats / Profile footer */}
-        <div className="border-t border-slate-100 pt-4 space-y-2">
-          <div className="flex items-center justify-between text-sm text-slate-600">
-            <span className="flex items-center gap-1 font-semibold text-amber-500">
-              <Flame className="w-4 h-4 fill-amber-500" /> {streak} días
-            </span>
-            <span className="flex items-center gap-1 font-semibold text-indigo-600">
-              ⚡ {xp} XP
-            </span>
-          </div>
-        </div>
+      {/* Desktop sidebar */}
+      <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col gap-2 border-r-2 border-border bg-card p-4 md:flex">
+        <h1 className="mb-6 px-2 text-3xl font-extrabold text-primary">LingoArena<span className="text-flame"> AI</span></h1>
+        {TABS.map((x) => (
+          <button key={x.id} onClick={() => go(x.id)} className={cn("flex items-center gap-3 rounded-2xl border-2 px-4 py-3 text-sm font-extrabold uppercase transition", tab === x.id ? "border-secondary bg-secondary/15 text-secondary" : "border-transparent text-muted-foreground hover:bg-muted")}>
+            <x.icon className="h-6 w-6" />{t(x.key)}
+          </button>
+        ))}
+        <button onClick={() => setShowSettings(true)} className="mt-auto flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-extrabold uppercase text-muted-foreground hover:bg-muted"><SettingsIcon className="h-6 w-6" />{t("settings")}</button>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 p-8 overflow-y-auto">
-        {activeTab === 'learn' && <LearnPath />}
-
-        {activeTab === 'speech' && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-bold text-slate-800 mb-2">Práctica de Voz</h2>
-            <p className="text-slate-500">Mejora tu pronunciación con IA.</p>
+      {/* Header */}
+      <header className="sticky top-0 z-30 border-b-2 border-border bg-background/90 backdrop-blur">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-2 px-4 py-3">
+          <div className="flex items-center gap-1.5">
+            <select aria-label={t("nativeLang")} value={s.native} onChange={(e) => update({ native: e.target.value as NativeLang })}
+              className="max-w-[7rem] rounded-xl border-2 border-border bg-card px-2 py-1.5 text-sm font-bold">
+              {NATIVES.map((n) => <option key={n.id} value={n.id}>{langName(n.id, n.id)}</option>)}
+            </select>
+            <span className="text-muted-foreground">→</span>
+            <select aria-label={t("targetLang")} value={s.target} onChange={(e) => update({ target: e.target.value as TargetLang })}
+              className="max-w-[8rem] rounded-xl border-2 border-border bg-card px-2 py-1.5 text-sm font-bold">
+              {TARGETS.filter((x) => x.id !== s.native).map((x) => <option key={x.id} value={x.id}>{x.flag} {langName(x.id, s.native)}</option>)}
+            </select>
           </div>
-        )}
-
-        {activeTab === 'grammar' && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-bold text-slate-800 mb-2">Batalla de Gramática</h2>
-            <p className="text-slate-500">Desafíos rápidos de gramática en inglés.</p>
+          <div className="flex items-center gap-3 font-extrabold sm:gap-5">
+            <span className="flex items-center gap-1 text-flame" title={t("streak")}><Flame className="h-6 w-6 fill-current" />{s.streak}</span>
+            <span key={bump} className="flex items-center gap-1 text-gem animate-pop" title="XP"><Gem className="h-6 w-6" />{s.xp}</span>
+            <span className="flex items-center gap-1 text-heart" title={t("hearts")}><Heart className="h-6 w-6 fill-current" />{s.hearts}</span>
+            <button onClick={() => update({ rate: s.rate === 1 ? 0.8 : 1 })} className="rounded-lg border-2 border-border px-2 py-0.5 text-xs" title={t("speed")}>{s.rate === 1 ? "1.0×" : "0.8×"}</button>
+            <button aria-label={t("settings")} onClick={() => setShowSettings(true)} className="md:hidden"><SettingsIcon className="h-6 w-6 text-muted-foreground" /></button>
           </div>
-        )}
+        </div>
+      </header>
 
-        {activeTab === 'stats' && (
-          <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl border border-slate-200">
-            <h2 className="text-xl font-bold text-slate-800 mb-2">Progreso General</h2>
-            <p className="text-slate-500">XP acumulado: {xp} | Vidas: Infinitas (∞)</p>
-          </div>
-        )}
+      <main className="mx-auto max-w-3xl px-4 py-6">
+        <p className="mb-4 text-sm font-bold text-muted-foreground">{t("learning")} {target.flag} {langName(s.target, s.native)} · {t("level")} {levelFromXp(s.xp)}</p>
+        {tab === "learn" && <LearnPath key={langKey} lingo={lingo} reward={reward} fail={fail} />}
+        {tab === "arena" && <SpeechArena key={langKey} lingo={lingo} reward={reward} fail={fail} />}
+        {tab === "grammar" && <GrammarBattle key={langKey} lingo={lingo} reward={reward} fail={fail} />}
+        {tab === "chat" && <FreeChat key={langKey} lingo={lingo} reward={reward} />}
+        {tab === "stats" && <Stats lingo={lingo} />}
       </main>
+
+      {/* Mobile nav */}
+      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t-2 border-border bg-card md:hidden">
+        {TABS.map((x) => (
+          <button key={x.id} onClick={() => go(x.id)} className={cn("flex flex-col items-center gap-1 py-2 text-[10px] font-extrabold uppercase", tab === x.id ? "text-secondary" : "text-muted-foreground")}>
+            <x.icon className="h-6 w-6" /><span className="max-w-full truncate px-0.5">{t(x.key)}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }

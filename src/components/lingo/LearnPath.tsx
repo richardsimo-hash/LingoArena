@@ -1,75 +1,141 @@
-import React from 'react';
-import { Flame, CheckCircle, Lock } from 'lucide-react';
+import { useMemo, useState } from "react";
+import { Check, Star, X, Heart } from "lucide-react";
+import { NODES_PER_UNIT, TARGETS, UNITS, nodeConcepts, unitConcepts, type Concept } from "@/lib/lingo/content";
+import { shuffle } from "@/lib/lingo/engine";
+import { makeT, unitTitle } from "@/lib/lingo/i18n";
+import { speak } from "@/lib/lingo/audio";
+import type { Lingo } from "@/lib/lingo/store";
+import { Btn, Card, SpeakButtons } from "./ui";
+import { cn } from "@/lib/utils";
 
-export default function LearnPath() {
-  const units = [
-    { id: 1, title: 'Unidad 1: Fundamentos', status: 'completed', description: 'Saludos y presentaciones básicas' },
-    { id: 2, title: 'Unidad 2: Comida y Restaurantes', status: 'current', description: 'Pedir platos y hablar de preferencias' },
-    { id: 3, title: 'Unidad 3: Viajes y Direcciones', status: 'locked', description: 'Preguntar por el camino y transportes' },
-    { id: 4, title: 'Unidad 4: Negocios y Trabajo', status: 'locked', description: 'Vocabulario profesional y reuniones' },
-  ];
+const UNIT_STYLE = [
+  "bg-primary text-primary-foreground",
+  "bg-secondary text-secondary-foreground",
+  "bg-flame text-primary-foreground",
+  "bg-heart text-primary-foreground",
+  "bg-accent text-accent-foreground",
+];
+const OFFSET = [0, 56, -56];
+
+export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: number) => void; fail: () => void }) {
+  const { s, done } = lingo;
+  const t = makeT(s.native);
+  const [lesson, setLesson] = useState<number | null>(null);
+
+  if (lesson !== null) return <Lesson lingo={lingo} node={lesson} reward={reward} fail={fail} onExit={() => setLesson(null)} />;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      <div className="flex items-center justify-between bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-        <div>
-          <h2 className="text-2xl font-black text-slate-800">Ruta de Aprendizaje</h2>
-          <p className="text-slate-500">Completa lecciones para ganar XP y mantener tu racha.</p>
-        </div>
-        <div className="flex items-center gap-2 bg-amber-50 text-amber-700 px-4 py-2 rounded-xl font-bold">
-          <Flame className="w-5 h-5 fill-amber-500" />
-          <span>¡Sigue así!</span>
-        </div>
-      </div>
-
-      <div className="space-y-4">
-        {units.map((unit, index) => (
-          <div
-            key={unit.id}
-            className={`p-6 rounded-2xl border transition-all flex items-center justify-between ${
-              unit.status === 'current'
-                ? 'bg-indigo-50 border-indigo-300 shadow-md ring-2 ring-indigo-500/20'
-                : unit.status === 'completed'
-                ? 'bg-white border-emerald-200'
-                : 'bg-slate-50 border-slate-200 opacity-75'
-            }`}
-          >
-            <div className="flex items-center gap-4">
-              <div
-                className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-lg ${
-                  unit.status === 'current'
-                    ? 'bg-indigo-600 text-white'
-                    : unit.status === 'completed'
-                    ? 'bg-emerald-500 text-white'
-                    : 'bg-slate-200 text-slate-500'
-                }`}
-              >
-                {unit.status === 'completed' ? <CheckCircle className="w-6 h-6" /> : unit.status === 'locked' ? <Lock className="w-6 h-6" /> : index + 1}
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800 text-lg">{unit.title}</h3>
-                <p className="text-sm text-slate-500">{unit.description}</p>
-              </div>
-            </div>
-
-            <div>
-              {unit.status === 'current' && (
-                <button className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-6 py-2.5 rounded-xl shadow-lg shadow-indigo-600/30 transition-all">
-                  Continuar
-                </button>
-              )}
-              {unit.status === 'completed' && (
-                <span className="text-emerald-600 font-bold text-sm bg-emerald-50 px-3 py-1.5 rounded-lg">
-                  Completado
-                </span>
-              )}
-              {unit.status === 'locked' && (
-                <span className="text-slate-400 font-medium text-sm">Bloqueado</span>
-              )}
-            </div>
+    <div className="space-y-10 pb-10">
+      {UNITS.map((u, ui) => (
+        <section key={ui}>
+          <div className={cn("mb-6 rounded-3xl p-5", UNIT_STYLE[ui % UNIT_STYLE.length])}>
+            <p className="text-xs font-extrabold uppercase opacity-80">{t("unit")} {ui + 1}</p>
+            <h2 className="text-2xl font-extrabold">{u.emoji} {unitTitle(ui, s.native)}</h2>
           </div>
-        ))}
+          <div className="flex flex-col items-center gap-5">
+            {Array.from({ length: NODES_PER_UNIT }).map((_, ni) => {
+              const idx = ui * NODES_PER_UNIT + ni;
+              const isDone = done.includes(idx);
+              return (
+                <div key={ni} style={{ transform: `translateX(${OFFSET[ni % OFFSET.length]}px)` }} className="relative">
+                  {!isDone && ni === 0 && <div className="absolute -top-9 left-1/2 -translate-x-1/2 animate-bounce whitespace-nowrap rounded-xl border-2 border-border bg-card px-3 py-1 text-xs font-extrabold text-primary">{t("start")}</div>}
+                  {/* Every lesson is open: no locks, no ordering, no hearts gate. */}
+                  <button onClick={() => setLesson(idx)} aria-label={`${t("lesson")} ${idx + 1}${isDone ? ` — ${t("done")}` : ""}`}
+                    className={cn("btn-3d grid h-20 w-20 place-items-center rounded-full",
+                      isDone ? "bg-flame text-primary-foreground [--btn-shadow:color-mix(in_oklch,var(--flame)_70%,black)]" : "bg-primary text-primary-foreground ring-4 ring-accent")}>
+                    {isDone ? <Check className="h-9 w-9" strokeWidth={3} /> : <Star className="h-9 w-9 fill-current" />}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+type Q = { c: Concept; reverse: boolean; options: Concept[] };
+
+function Lesson({ lingo, node, reward, fail, onExit }: { lingo: Lingo; node: number; reward: (xp: number) => void; fail: () => void; onExit: () => void }) {
+  const { s, completeNode } = lingo;
+  const t = makeT(s.native);
+  const locale = TARGETS.find((x) => x.id === s.target)!.locale;
+  const unit = Math.floor(node / NODES_PER_UNIT);
+  const nodeInUnit = node % NODES_PER_UNIT;
+
+  // Each lesson owns its 3 concepts (never shared with another lesson or unit).
+  const questions = useMemo<Q[]>(() => {
+    const pool = nodeConcepts(unit, nodeInUnit);
+    const unitPool = unitConcepts(unit);
+    return shuffle(pool).map((c, i) => {
+      // Type A: prompt in NATIVE, options in TARGET.  Type B: prompt in TARGET (+audio), options in NATIVE.
+      const reverse = (node + i) % 2 === 1;
+      const optText = (x: Concept) => (reverse ? x.tr[s.native] : x.tr[s.target]);
+      const seen = new Set<string>([optText(c), reverse ? c.tr[s.target] : c.tr[s.native]]);
+      const distract: Concept[] = [];
+      for (const x of shuffle(unitPool.filter((y) => y.id !== c.id))) {
+        const tx = optText(x);
+        if (seen.has(tx)) continue;
+        seen.add(tx); distract.push(x);
+        if (distract.length === 3) break;
+      }
+      return { c, reverse, options: shuffle([c, ...distract]) };
+    });
+  }, [s.target, s.native, unit, nodeInUnit, node]);
+
+  const [qi, setQi] = useState(0);
+  const [picked, setPicked] = useState<string | null>(null);
+  const [anim, setAnim] = useState("");
+  const q = questions[qi]!;
+  const correct = picked === q.c.id;
+  const optText = (x: Concept) => (q.reverse ? x.tr[s.native] : x.tr[s.target]);
+
+  const choose = (id: string) => {
+    if (picked) return;
+    setPicked(id);
+    speak(q.c.tr[s.target], locale, s.rate); // hear the right phrase after answering
+    if (id === q.c.id) { setAnim("animate-pop"); reward(5); }
+    else { setAnim("animate-shake"); fail(); }
+  };
+  const next = () => {
+    if (qi === questions.length - 1) { completeNode(node); reward(10); onExit(); return; }
+    setQi(qi + 1); setPicked(null); setAnim("");
+  };
+
+  return (
+    <div className="mx-auto max-w-xl space-y-5">
+      <div className="flex items-center gap-3">
+        <button aria-label={t("exit")} onClick={onExit}><X className="h-7 w-7 text-muted-foreground" /></button>
+        <div className="h-4 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${((qi + (picked ? 1 : 0)) / questions.length) * 100}%` }} /></div>
+        <span className="flex items-center gap-1 font-extrabold text-heart"><Heart className="h-5 w-5 fill-current" />{s.hearts}</span>
       </div>
+      <h2 className="text-2xl font-extrabold">{q.reverse ? t("whatMean") : t("howSay")}</h2>
+      <Card className={cn("flex items-center justify-between gap-3", anim)}>
+        <span className="text-2xl font-extrabold">{q.reverse ? q.c.tr[s.target] : q.c.tr[s.native]}</span>
+        {q.reverse && <SpeakButtons text={q.c.tr[s.target]} locale={locale} rate={s.rate} native={s.native} />}
+      </Card>
+      <div className="grid gap-3">
+        {q.options.map((o) => {
+          const isAns = o.id === q.c.id, isPicked = picked === o.id;
+          return (
+            <button key={o.id} onClick={() => choose(o.id)}
+              className={cn("rounded-2xl border-2 border-b-4 p-4 text-left text-lg font-bold transition",
+                !picked && "border-border hover:bg-muted",
+                picked && isAns && "border-success bg-success-soft",
+                picked && isPicked && !isAns && "border-destructive bg-danger-soft",
+                picked && !isAns && !isPicked && "border-border opacity-50")}>
+              {optText(o)}
+            </button>
+          );
+        })}
+      </div>
+      {picked && (
+        <div className={cn("flex items-center justify-between gap-3 rounded-2xl p-4 animate-in slide-in-from-bottom-4", correct ? "bg-success-soft" : "bg-danger-soft")}>
+          <span className="font-extrabold">{correct ? t("nailed") : `${t("correctIs")}: ${optText(q.c)}`}</span>
+          <Btn variant={correct ? "primary" : "danger"} onClick={next}>{qi === questions.length - 1 ? t("finish") : t("cont")}</Btn>
+        </div>
+      )}
     </div>
   );
 }
