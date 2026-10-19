@@ -49,9 +49,15 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
     const rec = getRecognition();
     if (!rec) { setSupported(false); return; }
     stopSpeaking(); // don't let the mic hear the bot
-    rec.lang = locale; rec.interimResults = true; rec.continuous = false; rec.maxAlternatives = 1;
+    rec.lang = locale; rec.interimResults = true; rec.continuous = true; rec.maxAlternatives = 1;
     lastRef.current = "";
     let delivered = false;
+    const finish = () => {
+      setListening(false);
+      if (delivered) return;
+      delivered = true;
+      if (lastRef.current) onDone(lastRef.current);
+    };
     rec.onresult = (e: any) => {
       let txt = "";
       for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
@@ -61,12 +67,9 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
     rec.onerror = (e: any) => {
       if (e.error === "aborted") return;
       setError(e.error === "not-allowed" || e.error === "service-not-allowed" ? t("micBlocked") : e.error === "no-speech" ? t("noSpeech") : t("speechErr"));
-      setListening(false);
+      finish();
     };
-    rec.onend = () => {
-      setListening(false);
-      if (!delivered && lastRef.current) { delivered = true; onDone(lastRef.current); }
-    };
+    rec.onend = finish;
     setError(null); setListening(true);
     recRef.current = rec;
     try { rec.start(); } catch { setListening(false); }

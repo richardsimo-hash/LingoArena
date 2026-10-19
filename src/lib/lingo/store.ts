@@ -24,6 +24,7 @@ export type State = {
 
 export const MAX_HEARTS = 5;
 const KEY = "lingoarena-v1";
+const LEGACY_KEYS = ["lingo-arena-force-reset-v99", "lingo-arena-storage", "lingoarena"];
 export const TOTAL_NODES = UNITS.length * NODES_PER_UNIT;
 
 const DEFAULT: State = {
@@ -55,6 +56,28 @@ export function defaultTarget(native: NativeLang): TargetLang {
   return pref.find((t) => t !== native) ?? TARGETS.find((t) => t.id !== native)!.id;
 }
 
+function readSaved(): unknown {
+  const fresh = localStorage.getItem(KEY);
+  if (fresh) return JSON.parse(fresh);
+  for (const k of LEGACY_KEYS) {
+    const raw = localStorage.getItem(k);
+    if (!raw) continue;
+    const parsed = JSON.parse(raw) as { state?: Record<string, unknown> } & Record<string, unknown>;
+    const st = (parsed.state && typeof parsed.state === "object" ? parsed.state : parsed) as Record<string, unknown>;
+    return {
+      configured: true,
+      native: st.native ?? st.nativeLanguage,
+      target: st.target ?? st.targetLanguage,
+      persona: st.persona ?? st.selectedPersona,
+      xp: st.xp,
+      hearts: st.hearts === "∞" ? MAX_HEARTS : st.hearts,
+      streak: st.streak,
+      dark: st.dark,
+    };
+  }
+  return null;
+}
+
 /** Validate + migrate whatever is in localStorage so languages are always consistent. */
 function sanitize(raw: unknown): State {
   const r = (raw && typeof raw === "object" ? raw : {}) as Partial<State> & { progress?: Record<string, { completed?: number; done?: number[] }> };
@@ -78,8 +101,8 @@ export function useLingo() {
 
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(KEY);
-      if (raw) setS(sanitize(JSON.parse(raw)));
+      const parsed = readSaved();
+      if (parsed) setS(sanitize(parsed));
       else { const native = detectNative(); setS({ ...DEFAULT, native, target: defaultTarget(native) }); }
     } catch { setS(sanitize(null)); }
     setLoaded(true);

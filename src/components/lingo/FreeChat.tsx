@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Send, PhoneOff, Clock } from "lucide-react";
-import { PERSONAS, TARGETS, type TargetLang } from "@/lib/lingo/content";
-import { chatReply } from "@/lib/lingo/chat.functions";
+import { PERSONAS, TARGETS } from "@/lib/lingo/content";
+import { chatReply, localChat } from "@/lib/lingo/chat.functions";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { speak, stopSpeaking } from "@/lib/lingo/audio";
 import type { Lingo } from "@/lib/lingo/store";
@@ -9,17 +9,6 @@ import { Btn, Card, MicButton, useSpeech } from "./ui";
 import { cn } from "@/lib/utils";
 
 type Msg = { role: "user" | "assistant"; content: string; correction?: string };
-
-// Used only if the AI backend is unreachable.
-const OFFLINE: Record<TargetLang, string[]> = {
-  es: ["¡Qué interesante! Cuéntame más.", "¿Y por qué te gusta eso?", "Entiendo. ¿Qué más haces en tu tiempo libre?"],
-  fr: ["Comme c'est intéressant ! Dis-m'en plus.", "Et pourquoi aimes-tu ça ?", "Je vois. Que fais-tu d'autre pendant ton temps libre ?"],
-  en: ["How interesting! Tell me more.", "And why do you like that?", "I see. What else do you do in your free time?"],
-  de: ["Wie interessant! Erzähl mir mehr.", "Und warum magst du das?", "Ich verstehe. Was machst du sonst in deiner Freizeit?"],
-  it: ["Che interessante! Dimmi di più.", "E perché ti piace?", "Capisco. Cos'altro fai nel tempo libero?"],
-  pt: ["Que interessante! Conta-me mais.", "E porque é que gostas disso?", "Percebo. O que mais fazes nos tempos livres?"],
-  ja: ["おもしろいですね！もっと教えてください。", "どうしてそれが好きですか？", "なるほど。ほかに何をしますか？"],
-};
 
 function parse(raw: string): { reply: string; correction: string } {
   const m = raw.match(/\{[\s\S]*\}/);
@@ -80,20 +69,25 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     let reply = "", correction = "";
     try {
       const r = await chatReply({
-        data: {
-          messages: history.map(({ role, content }) => ({ role, content })),
-          targetName: langName(s.target, "en"),
-          nativeName: langName(s.native, "en"),
-          persona: persona.id,
-        },
+        messages: history.map(({ role, content }) => ({ role, content })),
+        targetName: langName(s.target, "en"),
+        nativeName: langName(s.native, "en"),
+        persona: persona.id,
       });
       if (!r.ok) throw new Error(r.error);
       ({ reply, correction } = parse(r.text));
       setOffline(false);
     } catch {
       setOffline(true);
-      const pool = OFFLINE[s.target];
-      reply = history.length ? pool[history.length % pool.length]! : pool[0]!;
+      const local = localChat({
+        messages: history,
+        targetName: langName(s.target, "en"),
+        nativeName: langName(s.native, "en"),
+        persona: persona.id,
+        target: s.target,
+      });
+      reply = local.reply;
+      correction = local.correction;
     }
     if (phaseRef.current !== "chat") return;
     const base = history.map((m, i) => (correction && i === history.length - 1 && m.role === "user" ? { ...m, correction } : m));

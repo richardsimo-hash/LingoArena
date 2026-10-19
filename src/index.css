@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #fff;
+  --foreground: #3c3c3c;
+  --card: #fff;
+  --card-foreground: #3c3c3c;
+  --muted: #e5e5e5;
+  --muted-foreground: #777;
+  --border: #e5e5e5;
+  --primary: #58cc02;
+  --primary-foreground: #fff;
+  --primary-shadow: #58a700;
+  --secondary: #1cb0f6;
+  --secondary-foreground: #fff;
+  --accent: #ddf4ff;
+  --accent-foreground: #1899d6;
+  --destructive: #ff4b4b;
+  --destructive-foreground: #fff;
+  --flame: #ff9600;
+  --heart: #ff4b4b;
+  --gem: #1cb0f6;
+  --success: #58cc02;
+  --success-foreground: #226600;
+  --success-soft: #d7ffb8;
+  --danger-soft: #ffdfe0;
+  --warn: #fff4d4;
+  --warn-foreground: #9a6700;
+  --locked: #cfcfcf;
+}
+.dark {
+  --background: #131f24;
+  --foreground: #f1f7fb;
+  --card: #1b2b32;
+  --card-foreground: #f1f7fb;
+  --muted: #2e3e45;
+  --muted-foreground: #9cafa8;
+  --border: #37464f;
+  --accent: #202f36;
+  --accent-foreground: #49c0f8;
+  --success-soft: #1f3d12;
+  --danger-soft: #3d1518;
+  --warn: #3d3214;
+  --warn-foreground: #ffd166;
+  --locked: #37464f;
+}
+html, body, #root { min-height: 100%; }
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-rounded, "Nunito", system-ui, sans-serif;
+}
+.btn-3d {
+  border: 0;
+  border-bottom: 4px solid var(--btn-shadow, var(--primary-shadow));
+  font-weight: 800;
+  border-radius: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.btn-3d:active:not(:disabled) { transform: translateY(2px); border-bottom-width: 2px; }
+.btn-3d:disabled { opacity: 0.5; }
+.animate-in { animation: in-up 0.25s ease; }
+.slide-in-from-bottom-4 { animation: in-up 0.25s ease; }

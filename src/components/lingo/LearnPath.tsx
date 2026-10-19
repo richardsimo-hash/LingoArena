@@ -70,14 +70,24 @@ function Lesson({ lingo, node, reward, fail, onExit }: { lingo: Lingo; node: num
     const unitPool = unitConcepts(unit);
     return shuffle(pool).map((c, i) => {
       // Type A: prompt in NATIVE, options in TARGET.  Type B: prompt in TARGET (+audio), options in NATIVE.
-      const reverse = (node + i) % 2 === 1;
+      // Never print the answer in the other language on the same screen.
+      let reverse = (node + i) % 2 === 1;
+      const promptOf = (rev: boolean) => (rev ? c.tr[s.target] : c.tr[s.native]);
+      const answerOf = (rev: boolean) => (rev ? c.tr[s.native] : c.tr[s.target]);
+      if (promptOf(reverse).trim().toLowerCase() === answerOf(reverse).trim().toLowerCase()) reverse = !reverse;
       const optText = (x: Concept) => (reverse ? x.tr[s.native] : x.tr[s.target]);
-      const seen = new Set<string>([optText(c), reverse ? c.tr[s.target] : c.tr[s.native]]);
+      const seen = new Set<string>([
+        optText(c).trim().toLowerCase(),
+        promptOf(reverse).trim().toLowerCase(),
+        answerOf(reverse).trim().toLowerCase(),
+        c.tr[s.native].trim().toLowerCase(),
+        c.tr[s.target].trim().toLowerCase(),
+      ]);
       const distract: Concept[] = [];
       for (const x of shuffle(unitPool.filter((y) => y.id !== c.id))) {
-        const tx = optText(x);
-        if (seen.has(tx)) continue;
-        seen.add(tx); distract.push(x);
+        const tx = optText(x).trim();
+        if (seen.has(tx.toLowerCase())) continue;
+        seen.add(tx.toLowerCase()); distract.push(x);
         if (distract.length === 3) break;
       }
       return { c, reverse, options: shuffle([c, ...distract]) };

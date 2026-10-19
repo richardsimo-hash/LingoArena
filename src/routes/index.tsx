@@ -1,8 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { Flame, Gem, Heart, Settings as SettingsIcon, Map, Mic, Swords, BarChart3, MessageCircle } from "lucide-react";
-import { toast } from "sonner";
-import { Toaster } from "@/components/ui/sonner";
+import { toast, Toaster } from "sonner";
 import { NATIVES, TARGETS, type NativeLang, type TargetLang } from "@/lib/lingo/content";
 import { useLingo, levelFromXp } from "@/lib/lingo/store";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
@@ -15,20 +13,6 @@ import { FreeChat } from "@/components/lingo/FreeChat";
 import { Stats } from "@/components/lingo/Stats";
 import { cn } from "@/lib/utils";
 
-export const Route = createFileRoute("/")({
-  head: () => ({
-    meta: [
-      { title: "LingoArena AI — Gamified Language Battles" },
-      { name: "description", content: "Free, gamified language practice with speech duels, listening battles and free conversation with an AI avatar." },
-      { property: "og:title", content: "LingoArena AI — Gamified Language Battles" },
-      { property: "og:description", content: "Speak, battle and level up in 7 languages. Free forever, right in your browser." },
-      { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary_large_image" },
-    ],
-  }),
-  component: App,
-});
-
 const TABS = [
   { id: "learn", key: "learn", icon: Map },
   { id: "arena", key: "arena", icon: Mic },
@@ -38,7 +22,7 @@ const TABS = [
 ] as const satisfies readonly { id: string; key: K; icon: unknown }[];
 type Tab = (typeof TABS)[number]["id"];
 
-function App() {
+export default function App() {
   const lingo = useLingo();
   const { s, loaded, update, addXp, loseHeart } = lingo;
   const t = makeT(s.native);

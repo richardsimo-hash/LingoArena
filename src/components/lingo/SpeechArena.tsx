@@ -38,12 +38,12 @@ function Duel({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void })
   const rewarded = useRef(false);
   const speech = useSpeech(tg.locale, s.native);
   const target = c.tr[s.target];
-  const correct = res?.score === 100;
+  const correct = !!res?.exact;
 
   const evaluate = (text: string) => {
     const r = compareSpeech(target, text, s.target);
     setSpoken(text); setRes(r);
-    if (r.score === 100) {
+    if (r.exact) {
       sfx.correct();
       if (!rewarded.current) { rewarded.current = true; reward(10); }
     } else sfx.wrong();
