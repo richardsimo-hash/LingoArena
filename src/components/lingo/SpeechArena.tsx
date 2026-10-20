@@ -40,6 +40,12 @@ function Duel({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void })
   const target = c.tr[s.target];
   const correct = !!res?.exact;
 
+  // Speak the model phrase when a new duel begins; SpeakButtons provides replay and slow replay.
+  useEffect(() => {
+    speak(target, tg.locale, s.rate);
+    return () => stopSpeaking();
+  }, [c.id, s.target]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const evaluate = (text: string) => {
     const r = compareSpeech(target, text, s.target);
     setSpoken(text); setRes(r);
@@ -99,12 +105,12 @@ function Duel({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void })
 
 type RQ = { c: Concept; opts: Concept[] };
 
-const TURBO_LEVELS = [
-  { level: 1, title: "Words & basics", description: "Words and short expressions", questions: 5, rate: 0.8 },
-  { level: 2, title: "Short phrases", description: "Simple everyday phrases", questions: 6, rate: 0.85 },
-  { level: 3, title: "Everyday sentences", description: "Common questions and answers", questions: 7, rate: 0.9 },
-  { level: 4, title: "Longer sentences", description: "Longer sentences and connected speech", questions: 8, rate: 0.95 },
-  { level: 5, title: "Natural expressions", description: "Idioms and natural language", questions: 9, rate: 1 },
+export const TURBO_LEVELS = [
+  { level: 1, title: "Words & basics", description: "Words and short expressions", questions: 10, rate: 0.8 },
+  { level: 2, title: "Short phrases", description: "Simple everyday phrases", questions: 10, rate: 0.85 },
+  { level: 3, title: "Everyday sentences", description: "Common questions and answers", questions: 12, rate: 0.9 },
+  { level: 4, title: "Longer sentences", description: "Longer sentences and connected speech", questions: 12, rate: 0.95 },
+  { level: 5, title: "Natural expressions", description: "Idioms and natural language", questions: 14, rate: 1 },
   { level: 6, title: "Spontaneous speaking", description: "Understand and respond naturally", questions: 10, rate: 1.05 },
   { level: 7, title: "Advanced challenge", description: "Complex expressions and precision", questions: 12, rate: 1.1 },
 ];
@@ -127,13 +133,16 @@ function Rapid({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void; 
     const config = TURBO_LEVELS[selectedLevel - 1]!;
     const shuffled = shuffle(CONCEPTS);
     const picks = Array.from({ length: config.questions }, (_, i) => shuffled[i % shuffled.length]!);
+    const usedConceptIds = new Set<string>();
     setQs(picks.map((original, i) => {
       let c = original;
-      // Higher levels prioritize longer expressions when the content bank permits it.
-      if (selectedLevel >= 4) {
-        const longOnes = shuffled.filter((x) => x.tr[s.target].split(/\s+/).length >= 4);
-        if (longOnes.length && i % 2 === 0) c = longOnes[i % longOnes.length]!;
+      // Higher levels prioritize longer expressions while preserving unique prompts in a run.
+      if (selectedLevel >= 4 && i % 2 === 0) {
+        const longOnes = shuffled.filter((x) => x.tr[s.target].split(/\s+/).length >= 4 && !usedConceptIds.has(x.id));
+        if (longOnes.length) c = longOnes[0]!;
       }
+      if (usedConceptIds.has(c.id)) c = shuffled.find((candidate) => !usedConceptIds.has(candidate.id)) ?? original;
+      usedConceptIds.add(c.id);
       const seen = new Set([c.tr[s.native]]);
       const opts: Concept[] = [];
       const candidates = shuffle(CONCEPTS.filter((x) => x.id !== c.id));
@@ -165,14 +174,17 @@ function Rapid({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void; 
     if (lastCorrect !== null) return;
     const q = qs[qi]!;
     const right = id === q.c.id;
-    let total = earned;
     setLastCorrect(right);
     if (right) {
-      const gain = reveal ? 2 : 5 * combo; total += gain; setEarned(total);
-      setCombo((c) => Math.min(5, c + 1)); setFlash("animate-pop"); sfx.correct();
+      const gain = reveal ? 2 : 5 * combo;
+      setEarned((total) => total + gain);
+      setCombo((currentCombo) => Math.min(5, currentCombo + 1)); setFlash("animate-pop"); sfx.correct();
     } else { setCombo(1); setFlash("animate-shake"); sfx.wrong(); }
     setTimeout(() => setFlash(""), 450);
-    if (qi === qs.length - 1) finish(total); else setQi((n) => n + 1);
+  };
+  const advance = () => {
+    if (qi === qs.length - 1) finish(earned);
+    else setQi((current) => current + 1);
   };
 
   if (state === "idle" || state === "over") return (
@@ -212,6 +224,7 @@ function Rapid({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void; 
       <div className="grid gap-3">
         {q.opts.map((o) => <button key={o.id} onClick={() => answer(o.id)} disabled={lastCorrect !== null} className={cn("rounded-2xl border-2 border-b-4 border-border bg-card p-4 text-lg font-bold transition hover:bg-muted active:translate-y-1 disabled:opacity-80", lastCorrect !== null && o.id === q.c.id && "border-primary bg-success-soft", lastCorrect === false && o.id !== q.c.id && "border-destructive bg-danger-soft")}>{o.tr[s.native]}</button>)}
       </div>
+      {lastCorrect !== null && <div className={cn("space-y-3 rounded-2xl p-4", lastCorrect ? "bg-success-soft" : "bg-danger-soft")}><p className="font-extrabold">{lastCorrect ? "Correct! Nice combo." : `Not quite. The phrase means: ${q.c.tr[s.native]}. Try again or continue.`}</p><div className="flex gap-2">{!lastCorrect && <Btn variant="ghost" className="flex-1" onClick={() => setLastCorrect(null)}>Try again</Btn>}<Btn className="flex-1" onClick={advance}>{qi === qs.length - 1 ? "Finish level" : "Next question"}</Btn></div></div>}
       <p className="text-center text-xs text-muted-foreground">{t("earned")}: {earned} XP · Sin límite de tiempo</p>
     </div>
   );

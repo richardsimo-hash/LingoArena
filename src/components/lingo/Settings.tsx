@@ -2,6 +2,7 @@ import { useState } from "react";
 import { X, Trash2 } from "lucide-react";
 import { NATIVES, PERSONAS, TARGETS, type NativeLang } from "@/lib/lingo/content";
 import { defaultTarget, type Lingo } from "@/lib/lingo/store";
+import { getAccent, setAccent } from "@/lib/lingo/audio";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { Btn } from "./ui";
 import { cn } from "@/lib/utils";
@@ -11,14 +12,15 @@ export function Settings({ lingo, onClose }: { lingo: Lingo; onClose: () => void
   const [native, setNative] = useState(s.native);
   const [target, setTarget] = useState(s.target);
   const [persona, setPersona] = useState(s.persona);
+  const [accent, setAccentChoice] = useState(() => getAccent(s.target));
   const [confirm, setConfirm] = useState(false);
   const t = makeT(native); // the dialog itself switches language as soon as the user picks one
 
   const pickNative = (n: NativeLang) => {
     setNative(n);
-    if (target === n) setTarget(defaultTarget(n));
+    if (target === n) { const next = defaultTarget(n); setTarget(next); setAccentChoice(getAccent(next)); }
   };
-  const save = () => { update({ native, target, persona, configured: true }); onClose(); };
+  const save = () => { setAccent(target, accent); update({ native, target, persona, configured: true }); onClose(); };
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/50 p-4 backdrop-blur-sm">
@@ -39,12 +41,23 @@ export function Settings({ lingo, onClose }: { lingo: Lingo; onClose: () => void
         <label className="mb-2 block text-xs font-extrabold uppercase text-muted-foreground">{t("iLearn")}</label>
         <div className="mb-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
           {TARGETS.filter((x) => x.id !== native).map((x) => (
-            <button key={x.id} onClick={() => setTarget(x.id)}
+            <button key={x.id} onClick={() => { setTarget(x.id); setAccentChoice(getAccent(x.id)); }}
               className={cn("rounded-2xl border-2 p-2 text-center font-bold transition", target === x.id ? "border-primary bg-accent text-accent-foreground" : "border-border hover:bg-muted")}>
               <div className="text-2xl">{x.flag}</div><div className="text-xs">{langName(x.id, native)}</div>
             </button>
           ))}
         </div>
+
+        <label className="mb-2 block text-xs font-extrabold uppercase text-muted-foreground">Speaking accent</label>
+        <select value={accent} onChange={(e) => setAccentChoice(e.target.value)} className="mb-5 w-full rounded-2xl border-2 border-border bg-background p-3 font-bold">
+          {(target === "en" ? [["auto", "Auto"], ["en-US", "English — United States"], ["en-GB", "English — United Kingdom"], ["en-AU", "English — Australia"], ["en-IN", "English — India"]]
+            : target === "es" ? [["auto", "Auto"], ["es-ES", "Español — España"], ["es-MX", "Español — México"], ["es-AR", "Español — Argentina"], ["es-DO", "Español — República Dominicana"]]
+            : target === "pt" ? [["auto", "Auto"], ["pt-BR", "Português — Brasil"], ["pt-PT", "Português — Portugal"]]
+            : target === "fr" ? [["auto", "Auto"], ["fr-FR", "Français — France"], ["fr-CA", "Français — Canada"]]
+            : target === "de" ? [["auto", "Auto"], ["de-DE", "Deutsch — Deutschland"], ["de-AT", "Deutsch — Österreich"]]
+            : target === "it" ? [["auto", "Auto"], ["it-IT", "Italiano — Italia"]]
+            : [["auto", "Auto"], ["ja-JP", "日本語 — 日本"]]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
 
         <label className="mb-2 block text-xs font-extrabold uppercase text-muted-foreground">{t("persona")}</label>
         <div className="mb-5 space-y-2">

@@ -65,3 +65,22 @@ body {
 .btn-3d:disabled { opacity: 0.5; }
 .animate-in { animation: in-up 0.25s ease; }
 .slide-in-from-bottom-4 { animation: in-up 0.25s ease; }
+.avatar-mouth {
+  position: absolute;
+  left: 50%;
+  bottom: 29%;
+  width: 12px;
+  height: 4px;
+  border-radius: 999px;
+  background: #7f1d1d;
+  transform: translateX(-50%);
+}
+.avatar-speaking .avatar-mouth { animation: avatar-mouth-move 180ms ease-in-out infinite alternate; }
+@keyframes avatar-mouth-move {
+  from { height: 3px; width: 10px; }
+  to { height: 10px; width: 13px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .avatar-speaking .avatar-mouth { animation: none; height: 6px; }
+}
+.avatar-mouth-fallback { animation: avatar-mouth-move 180ms ease-in-out infinite alternate; }

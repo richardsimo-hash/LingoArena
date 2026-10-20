@@ -1,92 +1,73 @@
-# LingoArena — Product Specification
+# LingoArena — Product and technical specification
 
-## Product vision
-LingoArena is a gamified language-learning app that combines a Duolingo-inspired learning path with speaking practice and conversational AI. The product prioritizes sustained practice, confidence, useful feedback, and user autonomy.
+## Product goal
 
-## Product principles
-- Unlimited learning: no hearts, energy limits, penalties that block progress, or mandatory timers.
-- All levels and lessons are accessible; recommended sequences guide rather than restrict.
-- Mistakes are feedback, not punishment. Reattempts are unlimited.
-- The app must distinguish speech recognition from acoustic pronunciation assessment.
-- Be transparent about integrations, technical limitations, and AI-generated content.
-- Keep API secrets server-side.
+LingoArena combines a gamified language-learning path with a voice-first AI tutor called Chloe. The product prioritizes speaking, listening, pronunciation practice, and natural multi-turn conversation. The visual and learning inspiration is Duolingo-style progression and BetterSpeak-style avatar conversations; this is not an affiliation with either product.
 
-## Current architecture
-- React 19 + TypeScript + Vite + Tailwind CSS.
-- Local progress/preferences persisted in browser localStorage (`lingoarena-v1`).
-- Browser Web Speech API used for speech recognition when supported.
-- Browser Speech Synthesis used for reference audio and spoken assistant replies.
-- `/api/chat` supports Lovable AI Gateway or OpenAI-compatible chat completion when the corresponding server-side key is configured; local fallback replies are available.
-- No dedicated phoneme-level pronunciation service is currently configured. Arena de Voz compares recognized text against the expected phrase; it must not claim to measure acoustic pronunciation precisely.
+## Core product rules
 
-## Unlimited access and progression
-- Hearts are disabled as a gameplay restriction and are not displayed as a consumable resource.
-- Wrong answers never reduce a life or lock a lesson.
-- No mandatory timers in lessons or Turbo mode.
-- All visible units and lessons can be opened directly.
-- The learning path includes the five curated units plus mixed-practice units that expand with XP level. Mixed-practice units currently remix the existing phrase bank; they do not yet constitute genuinely infinite unique AI-generated linguistic content.
-- Future improvement: generate validated, level-appropriate content from a server-side AI provider and persist it to avoid repetition, while providing offline fallback content.
+- Unlimited hearts and attempts; mistakes never lock a learner out.
+- No mandatory timers. Optional session durations may be selected by the learner.
+- Every unit and level is accessible without prerequisite locks.
+- Core learning content is local and works without API calls.
+- Lessons contain at least ten varied, non-identical exercise prompts and are validated by tests.
+- XP and completion indicators motivate progress but do not restrict access.
 
-## Learning path
-- Five curated units cover greetings, cafés/food, directions/transport, shopping/hotels, and health/emergencies.
-- Three lessons per unit; progress is tracked per target language.
-- Additional mixed-practice units become visible as XP level grows.
-- Lesson items remain accessible regardless of completion state.
-- Preserve progress across refreshes using localStorage.
+## Learning modes
 
-## Arena de Voz
-- Browser speech recognition transcribes the user's spoken response where supported.
-- `compareSpeech` compares normalized recognized text to the target phrase and highlights matched/mismatched words.
-- Correct responses are shown with green feedback; mismatches with red feedback and an immediate retry.
-- Users can type a response when speech recognition is unavailable or blocked.
-- A transcription match is not equivalent to an acoustic pronunciation score. Phoneme, stress, intonation, and accent scoring require a dedicated assessment provider.
-- Technical recording/recognition errors should be reported as technical errors rather than linguistic failures.
+### Learn Path
 
-## Arena Turbo
-- Seven selectable challenge levels, from words and short expressions through advanced expressions.
-- Higher levels increase question count and adjust reference speech rate; longer phrases are prioritized when available.
-- Each run has a finite challenge set, but users can replay indefinitely and there is no countdown timer.
-- Content depth is limited by the existing phrase bank until dynamic content generation is integrated.
+Five starter units are provided, with three lessons each. As XP levels increase, the path adds mixed-practice units. Each lesson generates ten exercises from local translated concepts, including multiple choice, listening choice, typed translation, fill-in-the-gap, and speaking attempts. This is expandable practice, not literally infinite unique authored content; the current source phrase bank is finite and generated units reuse it.
 
-## Charla Libre
-- Conversations have an unlimited-time option selected by default; optional 3-, 5-, and 10-minute sessions remain available.
-- AI replies use the existing `/api/chat` endpoint when credentials are configured, otherwise local fallback replies are used.
-- Hands-free mode automatically starts a new one-turn speech-recognition session after the avatar finishes speaking, where browser speech recognition is supported.
-- The current avatar is an emoji/persona with speaking/listening/thinking visual states, not a photorealistic animated avatar with lip synchronization.
-- The browser speech APIs are not equivalent to a low-latency full-duplex speech-to-speech service. Barge-in, robust voice activity detection, and high-quality lip synchronization require further integration.
-- The user can stop hands-free mode, use manual microphone input, or type.
+### Speech Arena / Pronunciation Duel
 
-## Turbo levels
-1. Words & basics.
-2. Short phrases.
-3. Everyday sentences.
-4. Longer sentences.
-5. Natural expressions.
-6. Spontaneous speaking.
-7. Advanced challenge.
+The model phrase is played when a new duel starts, with replay and slow replay controls. The learner can answer through browser speech recognition or type a fallback response. Per-word green/red feedback is based on recognized text alignment. This is transcription matching, not acoustic or phoneme-level pronunciation scoring.
 
-These are challenge labels and difficulty heuristics, not a formal CEFR assessment.
+### Arena Turbo
 
-## Privacy and security
-- Microphone access requires browser permission and should be visibly indicated.
-- Private AI API keys must be stored in server-side environment variables, never frontend code.
-- Avoid storing raw audio unless a future feature explicitly requires it and user controls are provided.
-- AI and browser speech integrations can fail; provide retry/fallback behavior.
+Seven difficulty selections are available. Each run has at least ten questions, with increasing prompt count and audio rate. There are no timers or heart gates.
 
-## Acceptance criteria
-- No heart counter or heart depletion blocks learning.
-- Every incorrect response can be retried without waiting.
-- No timer is required in the learning path or Turbo.
-- Units remain open and progress persists.
-- Arena de Voz provides green/red transcript-based feedback and a retry path.
-- Turbo offers seven directly selectable levels.
-- Charla Libre defaults to no time limit and offers hands-free turn-taking when supported.
-- The UI communicates technical limitations honestly.
+### Grammar Battle
 
-## Known limitations / next steps
-1. Add automated tests for unlimited progression, Turbo level generation, and hands-free state transitions.
-2. Replace the small curated phrase bank with validated dynamic content generation and duplicate detection.
-3. Integrate a dedicated pronunciation-assessment service if phoneme-level feedback is required.
-4. Consider a real-time speech API for more natural turn-taking and interruption handling.
-5. Add a synchronized animated avatar only after selecting a provider or animation stack.
-6. Test on Chrome, Safari, Firefox, mobile browsers, and browsers without Web Speech support.
+A target-language phrase is spoken on each round. The default is listening-first with the text hidden until requested. Incorrect responses allow unlimited retries. Replay and slow replay are available.
+
+### Fire Combo
+
+A dedicated listening game speaks a prompt automatically at each question. The phrase is hidden by default, with replay/slow replay, optional reveal, multiple-choice answers, and seven selectable levels. Each level has at least ten prompts.
+
+### Open Talk / Free Talk
+
+A Chloe avatar screen shows listening/thinking/speaking states. The user can enable hands-free mode, which attempts to restart recognition after the tutor's audio ends. The browser's single-utterance recognition path is used where available; a MediaRecorder + server STT fallback is available where configured. A text input remains available as a recovery path.
+
+## Audio architecture
+
+`src/lib/lingo/audio.ts` is the single shared audio manager; `src/lib/audio.ts` re-exports it for a short public import path. It provides an unlock gesture, one persistent `<audio playsinline>` element, browser speech-synthesis fallback, asynchronous voice loading, accent preferences in localStorage, TTS cache (memory + IndexedDB), and a global mute toggle. Audio playback must be tested on physical iOS and Android devices because autoplay restrictions vary by browser and operating system.
+
+## Server-side API routes
+
+- `POST /api/chat`: OpenAI → Gemini fallback; client-side local phrasebook if both providers fail.
+- `POST /api/tts`: OpenAI TTS → Gemini audio generation → browser speech synthesis.
+- `POST /api/stt`: OpenAI transcription → Gemini transcription. Audio is sent as base64 JSON to avoid multipart parsing assumptions in the serverless handler.
+
+Provider keys are read only from server environment variables and must never be included in browser code. If providers fail or credentials are absent, the app should continue in limited mode and log the fallback reason.
+
+## Accent preferences
+
+Accent preference is stored per target language in localStorage. Supported UI selections include English US/UK/Australian/Indian, Spanish Spain/Mexico/Argentina/Dominican Republic, Portuguese Brazil/Portugal, French France/Canada, German Germany/Austria, Italian Italy, and Japanese Japan. Browser voices are selected only when a compatible voice is installed; cloud TTS may not perfectly honor every locale choice.
+
+## Security and cost controls
+
+- Keep all provider keys server-side.
+- Limit text length and audio upload size.
+- Use a small chat output budget and bounded conversation history.
+- Cache generated TTS audio in memory and IndexedDB.
+- Browser-only fallback content works without API usage.
+- Avoid storing raw audio persistently.
+
+## Known limitations
+
+- Hands-free turn detection depends on browser speech recognition behavior and a silence-detection fallback. True streamed LLM tokens, sentence-by-sentence streaming TTS, and a dedicated low-latency full-duplex voice transport are not implemented. Users can manually tap the microphone to interrupt the tutor where the browser supports it.
+- Avatar visuals are a local animated illustration, not a photorealistic video avatar; mouth animation is a CSS speaking-state effect rather than true audio-amplitude lip-sync.
+- Pronunciation feedback evaluates the transcription text and does not measure phonemes, pitch, stress, or acoustic fluency.
+- The source phrase bank is finite. Extra units are generated by reusing and mixing the local phrase bank, not by generating endless unique curriculum content.
+- Mobile audio behavior and provider fallback behavior require device/API-key tests before being considered verified.

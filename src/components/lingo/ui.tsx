@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes } from "react";
-import { Mic, MicOff, Volume2, Turtle } from "lucide-react";
+import { Mic, MicOff, Volume2, VolumeX, Turtle, AudioLines } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getRecognition, speak, stopSpeaking } from "@/lib/lingo/audio";
+import { getRecognition, speak, stopSpeaking, unlockAudio, isAudioUnlocked, isAudioMuted, setAudioMuted, transcribeAudio, resolveLocale } from "@/lib/lingo/audio";
 import { makeT } from "@/lib/lingo/i18n";
 import type { NativeLang } from "@/lib/lingo/content";
 
@@ -32,9 +32,8 @@ export function SpeakButtons({ text, locale, rate, native = "en" }: { text: stri
 }
 
 /**
- * Web Speech recognition. Tap -> listen(onDone) ; tap again -> stop().
- * The LAST transcript is kept in a ref and delivered through onDone when the engine ends,
- * so stopping the mic always evaluates what was said (the old version lost it).
+ * Speech capture prefers Web Speech. On browsers without it, MediaRecorder uploads audio
+ * to the protected /api/stt route. In hands-free mode a short silence ends each turn.
  */
 export function useSpeech(locale: string, native: NativeLang = "en") {
   const t = makeT(native);
@@ -43,39 +42,148 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
   const [supported, setSupported] = useState(true);
   const recRef = useRef<any>(null);
   const lastRef = useRef("");
-  useEffect(() => { setSupported(!!getRecognition()); return () => { try { recRef.current?.abort(); } catch {} }; }, []);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
+  const silenceTimerRef = useRef<number | null>(null);
+  const analyserFrameRef = useRef<number | null>(null);
+  const callbackRef = useRef<{ onDone: (text: string) => void; onInterim?: (text: string) => void } | null>(null);
+
+  useEffect(() => {
+    setSupported(!!getRecognition() || (typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined"));
+    return () => {
+      try { recRef.current?.abort(); } catch { /* ignored */ }
+      try { recorderRef.current?.stop(); } catch { /* ignored */ }
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      if (silenceTimerRef.current) window.clearTimeout(silenceTimerRef.current);
+      if (analyserFrameRef.current) cancelAnimationFrame(analyserFrameRef.current);
+    };
+  }, []);
 
   const listen = (onDone: (text: string) => void, onInterim?: (text: string) => void, continuous = true) => {
-    const rec = getRecognition();
-    if (!rec) { setSupported(false); return; }
-    stopSpeaking(); // don't let the mic hear the bot
-    rec.lang = locale; rec.interimResults = true; rec.continuous = continuous; rec.maxAlternatives = 1;
+    const recognition = getRecognition();
+    stopSpeaking();
+    setError(null);
     lastRef.current = "";
-    let delivered = false;
-    const finish = () => {
-      setListening(false);
-      if (delivered) return;
-      delivered = true;
-      if (lastRef.current) onDone(lastRef.current);
-    };
-    rec.onresult = (e: any) => {
-      let txt = "";
-      for (let i = 0; i < e.results.length; i++) txt += e.results[i][0].transcript;
-      lastRef.current = txt.trim();
-      onInterim?.(lastRef.current);
-    };
-    rec.onerror = (e: any) => {
-      if (e.error === "aborted") return;
-      setError(e.error === "not-allowed" || e.error === "service-not-allowed" ? t("micBlocked") : e.error === "no-speech" ? t("noSpeech") : t("speechErr"));
-      finish();
-    };
-    rec.onend = finish;
-    setError(null); setListening(true);
-    recRef.current = rec;
-    try { rec.start(); } catch { setListening(false); }
+    callbackRef.current = { onDone, onInterim };
+    if (recognition) {
+      recognition.lang = resolveLocale(locale); recognition.interimResults = true; recognition.continuous = continuous; recognition.maxAlternatives = 1;
+      let delivered = false;
+      const finish = () => {
+        setListening(false);
+        if (delivered) return;
+        delivered = true;
+        if (lastRef.current) onDone(lastRef.current);
+      };
+      recognition.onresult = (event: any) => {
+        let text = "";
+        for (let i = 0; i < event.results.length; i++) text += `${event.results[i][0].transcript} `;
+        lastRef.current = text.trim();
+        onInterim?.(lastRef.current);
+      };
+      recognition.onerror = (event: any) => {
+        if (event.error === "aborted") return;
+        setError(event.error === "not-allowed" || event.error === "service-not-allowed" ? t("micBlocked") : event.error === "no-speech" ? t("noSpeech") : t("speechErr"));
+        finish();
+      };
+      recognition.onend = finish;
+      setListening(true); recRef.current = recognition;
+      try { recognition.start(); } catch (cause) { setListening(false); setError(t("speechErr")); console.warn("[LingoArena STT] Web Speech start failed", cause); }
+      return;
+    }
+
+    // iOS Safari and browsers without SpeechRecognition: record and use the server STT fallback.
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
+      setSupported(false); setError(t("noVoice")); return;
+    }
+    void (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+        streamRef.current = stream;
+        const recorder = new MediaRecorder(stream);
+        recorderRef.current = recorder; chunksRef.current = [];
+        recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
+        recorder.onerror = () => setError(t("speechErr"));
+        recorder.onstop = async () => {
+          if (silenceTimerRef.current) window.clearTimeout(silenceTimerRef.current);
+          setListening(false);
+          stream.getTracks().forEach((track) => track.stop());
+          streamRef.current = null;
+          const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+          if (!blob.size) return;
+          try {
+            const transcript = await transcribeAudio(blob, locale);
+            setError(null);
+            lastRef.current = transcript;
+            callbackRef.current?.onInterim?.(transcript);
+            callbackRef.current?.onDone(transcript);
+          } catch (cause) {
+            console.warn("[LingoArena STT] server transcription unavailable", cause);
+            setError("Speech transcription is unavailable. Check API configuration or type your answer.");
+          }
+        };
+        recorder.start(250);
+        setListening(true);
+        silenceTimerRef.current = window.setTimeout(() => {
+          if (recorder.state === "recording") { setError(t("noSpeech")); recorder.stop(); }
+        }, 15000);
+        // Voice activity detection: stop after ~1.4s of low volume. The mic button also stops it.
+        const AudioContextCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (AudioContextCtor) {
+          const audioContext = new AudioContextCtor();
+          const analyser = audioContext.createAnalyser(); analyser.fftSize = 512;
+          audioContext.createMediaStreamSource(stream).connect(analyser);
+          const data = new Uint8Array(analyser.fftSize);
+          let heardVoice = false;
+          let silentSince = 0;
+          const recordingStartedAt = performance.now();
+          const check = () => {
+            if (recorder.state !== "recording") { void audioContext.close(); return; }
+            if (!heardVoice && performance.now() - recordingStartedAt > 12000) {
+              setError(t("noSpeech")); recorder.stop(); void audioContext.close(); return;
+            }
+            analyser.getByteTimeDomainData(data);
+            let sum = 0; for (const value of data) { const normalized = (value - 128) / 128; sum += normalized * normalized; }
+            const rms = Math.sqrt(sum / data.length);
+            if (rms > 0.035) { heardVoice = true; silentSince = 0; }
+            else if (heardVoice) { if (!silentSince) silentSince = performance.now(); if (performance.now() - silentSince > 1400) { recorder.stop(); void audioContext.close(); return; } }
+            analyserFrameRef.current = requestAnimationFrame(check);
+          };
+          analyserFrameRef.current = requestAnimationFrame(check);
+        }
+      } catch (cause) {
+        console.warn("[LingoArena STT] microphone capture failed", cause);
+        setListening(false); setError(t("micBlocked"));
+      }
+    })();
   };
-  const stop = () => { try { recRef.current?.stop(); } catch {} };
+
+  const stop = () => {
+    try { recRef.current?.stop(); } catch { /* ignored */ }
+    try { if (recorderRef.current?.state === "recording") recorderRef.current.stop(); } catch { /* ignored */ }
+    setListening(false);
+  };
   return { listening, error, supported, listen, stop };
+}
+
+/** Global sound status/banner. The unlock action is a real user gesture for mobile browsers. */
+export function AudioControls() {
+  const [unlocked, setUnlocked] = useState(isAudioUnlocked());
+  const [muted, setMuted] = useState(isAudioMuted());
+  useEffect(() => {
+    const update = (event: Event) => {
+      const detail = (event as CustomEvent<{ unlocked: boolean; muted: boolean }>).detail;
+      setUnlocked(detail.unlocked); setMuted(detail.muted);
+    };
+    window.addEventListener("lingo-audio-state", update);
+    return () => window.removeEventListener("lingo-audio-state", update);
+  }, []);
+  return <div className="flex items-center gap-2">
+    {!unlocked && <button onClick={() => void unlockAudio()} className="rounded-xl border border-flame bg-warn px-2 py-1 text-xs font-bold text-warn-foreground">Tap to enable sound</button>}
+    <button aria-label={muted ? "Unmute audio" : "Mute audio"} title={muted ? "Unmute audio" : "Mute audio"} onClick={() => { const next = !muted; setAudioMuted(next); setMuted(next); if (!next) void unlockAudio(); }} className="rounded-xl border-2 border-border bg-card p-2">
+      {muted ? <VolumeX className="h-4 w-4" /> : <AudioLines className="h-4 w-4" />}
+    </button>
+  </div>;
 }
 
 export function MicButton({ listening, onClick, big, disabled }: { listening: boolean; onClick: () => void; big?: boolean; disabled?: boolean }) {

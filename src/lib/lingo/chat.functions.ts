@@ -1,7 +1,7 @@
 import type { PersonaId, TargetLang } from "./content";
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
-export type ChatInput = { messages: ChatMsg[]; targetName: string; nativeName: string; persona: string };
+export type ChatInput = { messages: ChatMsg[]; targetName: string; nativeName: string; persona: string; cefr?: string; accent?: string; rollingSummary?: string };
 
 type Reply = { ok: true; text: string } | { ok: false; error: string };
 

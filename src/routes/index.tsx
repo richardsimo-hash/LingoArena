@@ -1,15 +1,17 @@
 import { useState } from "react";
-import { Flame, Gem, Settings as SettingsIcon, Map, Mic, Swords, BarChart3, MessageCircle } from "lucide-react";
+import { Flame, Gem, Settings as SettingsIcon, Map, Mic, Swords, BarChart3, MessageCircle, Zap } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { NATIVES, TARGETS, type NativeLang, type TargetLang } from "@/lib/lingo/content";
 import { useLingo, levelFromXp } from "@/lib/lingo/store";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
-import { sfx, stopSpeaking } from "@/lib/lingo/audio";
+import { sfx, stopSpeaking, unlockAudio } from "@/lib/lingo/audio";
 import { Settings } from "@/components/lingo/Settings";
+import { AudioControls } from "@/components/lingo/ui";
 import { LearnPath } from "@/components/lingo/LearnPath";
 import { GrammarBattle } from "@/components/lingo/GrammarBattle";
 import { SpeechArena } from "@/components/lingo/SpeechArena";
 import { FreeChat } from "@/components/lingo/FreeChat";
+import { FireCombo } from "@/components/lingo/FireCombo";
 import { Stats } from "@/components/lingo/Stats";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +19,7 @@ const TABS = [
   { id: "learn", key: "learn", icon: Map },
   { id: "arena", key: "arena", icon: Mic },
   { id: "grammar", key: "grammar", icon: Swords },
+  { id: "fire", key: "rapid", icon: Zap },
   { id: "chat", key: "chat", icon: MessageCircle },
   { id: "stats", key: "stats", icon: BarChart3 },
 ] as const satisfies readonly { id: string; key: K; icon: unknown }[];
@@ -39,7 +42,7 @@ export default function App() {
     else if (r.streakUp) { setTimeout(sfx.streak, 250); toast(`🔥 ${t("streakUp")}`); }
   };
   const fail = () => { sfx.wrong(); };
-  const go = (id: Tab) => { stopSpeaking(); setTab(id); };
+  const go = (id: Tab) => { void unlockAudio(); stopSpeaking(); setTab(id); };
 
   if (!loaded) return <div className="min-h-screen bg-background" />;
 
@@ -56,7 +59,7 @@ export default function App() {
         <h1 className="mb-6 px-2 text-3xl font-extrabold text-primary">LingoArena<span className="text-flame"> AI</span></h1>
         {TABS.map((x) => (
           <button key={x.id} onClick={() => go(x.id)} className={cn("flex items-center gap-3 rounded-2xl border-2 px-4 py-3 text-sm font-extrabold uppercase transition", tab === x.id ? "border-secondary bg-secondary/15 text-secondary" : "border-transparent text-muted-foreground hover:bg-muted")}>
-            <x.icon className="h-6 w-6" />{t(x.key)}
+            <x.icon className="h-6 w-6" />{x.id === "fire" ? "Fire Combo" : t(x.key)}
           </button>
         ))}
         <button onClick={() => setShowSettings(true)} className="mt-auto flex items-center gap-3 rounded-2xl px-4 py-3 text-sm font-extrabold uppercase text-muted-foreground hover:bg-muted"><SettingsIcon className="h-6 w-6" />{t("settings")}</button>
@@ -80,6 +83,7 @@ export default function App() {
             <span className="flex items-center gap-1 text-flame" title={t("streak")}><Flame className="h-6 w-6 fill-current" />{s.streak}</span>
             <span key={bump} className="flex items-center gap-1 text-gem animate-pop" title="XP"><Gem className="h-6 w-6" />{s.xp}</span>
             <button onClick={() => update({ rate: s.rate === 1 ? 0.8 : 1 })} className="rounded-lg border-2 border-border px-2 py-0.5 text-xs" title={t("speed")}>{s.rate === 1 ? "1.0×" : "0.8×"}</button>
+            <AudioControls />
             <button aria-label={t("settings")} onClick={() => setShowSettings(true)} className="md:hidden"><SettingsIcon className="h-6 w-6 text-muted-foreground" /></button>
           </div>
         </div>
@@ -90,15 +94,16 @@ export default function App() {
         {tab === "learn" && <LearnPath key={langKey} lingo={lingo} reward={reward} fail={fail} />}
         {tab === "arena" && <SpeechArena key={langKey} lingo={lingo} reward={reward} fail={fail} />}
         {tab === "grammar" && <GrammarBattle key={langKey} lingo={lingo} reward={reward} fail={fail} />}
+        {tab === "fire" && <FireCombo key={langKey} lingo={lingo} reward={reward} />}
         {tab === "chat" && <FreeChat key={langKey} lingo={lingo} reward={reward} />}
         {tab === "stats" && <Stats lingo={lingo} />}
       </main>
 
       {/* Mobile nav */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t-2 border-border bg-card md:hidden">
+      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t-2 border-border bg-card md:hidden">
         {TABS.map((x) => (
           <button key={x.id} onClick={() => go(x.id)} className={cn("flex flex-col items-center gap-1 py-2 text-[10px] font-extrabold uppercase", tab === x.id ? "text-secondary" : "text-muted-foreground")}>
-            <x.icon className="h-6 w-6" /><span className="max-w-full truncate px-0.5">{t(x.key)}</span>
+            <x.icon className="h-6 w-6" /><span className="max-w-full truncate px-0.5">{x.id === "fire" ? "Fire Combo" : t(x.key)}</span>
           </button>
         ))}
       </nav>
