@@ -5,9 +5,10 @@ import { setAudioApiStatus } from "./audio";
 type ChatMsg = { role: "user" | "assistant"; content: string };
 export type ChatInput = { messages: ChatMsg[]; targetName: string; nativeName: string; persona: string; cefr?: string; accent?: string; rollingSummary?: string; sessionTokensUsed?: number };
 
-type Reply = { ok: true; text: string } | { ok: false; error: string };
+type Reply = { ok: true; text: string; provider?: string; latencyMs?: number } | { ok: false; error: string; provider?: string; latencyMs?: number };
 
 export async function chatReply(data: ChatInput): Promise<Reply> {
+  const startedAt = performance.now();
   try {
     const res = await fetch("/api/chat", {
       method: "POST",
@@ -15,16 +16,27 @@ export async function chatReply(data: ChatInput): Promise<Reply> {
       body: JSON.stringify({ ...data, sessionTokensUsed: data.sessionTokensUsed ?? 0 }),
     });
     setAudioApiStatus(String(res.status));
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({})) as { error?: string; status?: unknown };
-      const status = typeof json.status === "string" ? json.status : `http_${res.status}`;
-      return { ok: false, error: json.error ? `${json.error}:${status}` : status };
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.toLowerCase().includes("application/json")) {
+      const raw = (await res.text().catch(() => "")).slice(0, 240);
+      const error = `api_chat_non_json_http_${res.status}_content_type_${contentType || "missing"}: ${raw}`;
+      setAudioApiStatus(`chat:${res.status}:non-json`);
+      return { ok: false, error, latencyMs: Math.round(performance.now() - startedAt) };
     }
-    const json = (await res.json()) as { text?: string; provider?: string };
+    const json = await res.json() as { text?: string; provider?: string; error?: string; status?: unknown; failover?: Record<string, string> };
+    const latencyMs = Math.round(performance.now() - startedAt);
+    if (!res.ok) {
+      const reason = typeof json.status === "object" ? JSON.stringify(json.status) : String(json.status || "");
+      const error = [json.error || `http_${res.status}`, reason].filter(Boolean).join(": ");
+      setAudioApiStatus(`chat:${res.status}:${error}`);
+      return { ok: false, error, latencyMs };
+    }
     setAudioApiStatus(`chat:${json.provider || "unknown"}`);
-    return json.text ? { ok: true, text: json.text, provider: json.provider } as Reply : { ok: false, error: "empty" };
-  } catch {
-    return { ok: false, error: "network" };
+    return json.text ? { ok: true, text: json.text, provider: json.provider, latencyMs } : { ok: false, error: "api_chat_empty_response", latencyMs };
+  } catch (cause) {
+    const error = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
+    setAudioApiStatus(`chat:network:${error}`);
+    return { ok: false, error: `network: ${error}`, latencyMs: Math.round(performance.now() - startedAt) };
   }
 }
 

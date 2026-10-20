@@ -21,3 +21,8 @@ npm run build
 ```
 
 See [PRODUCT_SPEC.md](./PRODUCT_SPEC.md) for architecture and known limitations and [DEPLOY.md](./DEPLOY.md) for Vercel setup. Mobile audio must be verified on real iOS Safari and Android Chrome devices.
+
+
+## Mobile audio diagnostics
+
+Open `/debug` or append `?debug=1` to the app URL. Run each sound/chat/microphone test independently and use **Copy report** to capture device diagnostics. See `ROOT_CAUSE_REPORT.md` for source-inspection findings and `DEPLOY.md` for Vercel configuration.

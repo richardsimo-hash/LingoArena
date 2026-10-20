@@ -1,3 +1,4 @@
+import { checkRateLimit } from "../server/rateLimit";
 type Body = { text?: string; locale?: string; rate?: number };
 function pcm16ToWav(pcm: Uint8Array, sampleRate = 24000, channels = 1): Uint8Array {
   const out = new Uint8Array(44 + pcm.length);
@@ -10,11 +11,13 @@ function pcm16ToWav(pcm: Uint8Array, sampleRate = 24000, channels = 1): Uint8Arr
   return out;
 }
 function sendAudio(res: { setHeader: (k: string, v: string) => void; status: (n: number) => { send: (v: Uint8Array | string) => void } }, bytes: Uint8Array, type: string) {
-  res.setHeader("Content-Type", type); res.setHeader("Cache-Control", "private, max-age=86400");
+  res.setHeader("Content-Type", type); res.setHeader("Content-Length", String(bytes.byteLength)); res.setHeader("Accept-Ranges", "bytes"); res.setHeader("Cache-Control", "private, max-age=86400");
   return res.status(200).send(bytes);
 }
-export default async function handler(req: { method?: string; body?: Body }, res: { setHeader: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void; send: (v: Uint8Array | string) => void } }) {
+export default async function handler(req: { method?: string; body?: Body; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void; send: (v: Uint8Array | string) => void } }) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  const rate = checkRateLimit(req, "tts", 30);
+  if (!rate.allowed) { res.setHeader("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ error: "rate_limited", retryAfterSeconds: rate.retryAfterSeconds }); }
   const text = String(req.body?.text || "").trim().slice(0, 1600);
   const locale = String(req.body?.locale || "en-US").slice(0, 20);
   if (!text) return res.status(400).json({ error: "text_required" });
@@ -32,7 +35,7 @@ export default async function handler(req: { method?: string; body?: Body }, res
 
   if (process.env.GEMINI_API_KEY) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_TTS_MODEL || "gemini-2.5-flash-preview-tts")}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts")}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, {
         method: "POST", signal: AbortSignal.timeout(18000), headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: `Read aloud naturally in the accent corresponding to ${locale}: ${text}` }] }],

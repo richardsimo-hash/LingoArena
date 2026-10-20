@@ -83,7 +83,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   const sendRef = useRef<(text: string) => void>(() => undefined);
   const rollingSummaryRef = useRef("");
   const sessionTokensRef = useRef(0);
-  const sessionTokenBudget = Math.max(1000, Number(import.meta.env.VITE_SESSION_TOKEN_BUDGET || 60000));
+  // Informational estimate only. A client-side estimate must never force lite mode.
   const handsFreeController = useHandsFreeConversation({
     speech,
     enabled: handsFree,
@@ -102,7 +102,6 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     let reply = "", correction = "";
     try {
       const estimatedInputTokens = Math.ceil(history.reduce((sum, message) => sum + message.content.length, 0) / 4);
-      if (sessionTokensRef.current + estimatedInputTokens > sessionTokenBudget) throw new Error("session_token_budget_exceeded");
       const r = await chatReply({
         messages: history.slice(-12).map(({ role, content }) => ({ role, content })),
         targetName: langName(s.target, "en"),

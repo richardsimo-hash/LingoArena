@@ -1,6 +1,9 @@
+import { checkRateLimit } from "../server/rateLimit";
 type Body = { audioBase64?: string; mimeType?: string; locale?: string };
-export default async function handler(req: { method?: string; body?: Body }, res: { status: (n: number) => { json: (v: unknown) => void } }) {
+export default async function handler(req: { method?: string; body?: Body; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader?: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void } }) {
   if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  const rate = checkRateLimit(req, "stt", 12);
+  if (!rate.allowed) { res.setHeader?.("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ error: "rate_limited", retryAfterSeconds: rate.retryAfterSeconds }); }
   const { audioBase64, mimeType = "audio/webm", locale = "en-US" } = req.body || {};
   if (!audioBase64) return res.status(400).json({ error: "audio_required" });
   const bytes = Buffer.from(audioBase64, "base64");
@@ -21,7 +24,7 @@ export default async function handler(req: { method?: string; body?: Body }, res
   }
   if (process.env.GEMINI_API_KEY) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_STT_MODEL || "gemini-2.0-flash")}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_STT_MODEL || "gemini-3.8-flash")}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, {
         method: "POST", signal: AbortSignal.timeout(20000), headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: `Transcribe exactly what is spoken in language/locale ${locale}. Return only the transcription, with no commentary.` }, { inlineData: { mimeType, data: audioBase64 } }] }] }),
       });

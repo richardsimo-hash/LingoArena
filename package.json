@@ -8,7 +8,8 @@
     "build": "npm run validate:content && tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "validate:content": "vitest run src/test/content.test.ts"
+    "validate:content": "vitest run src/test/content.test.ts",
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "clsx": "^2.1.1",
