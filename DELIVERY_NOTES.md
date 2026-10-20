@@ -1,28 +1,22 @@
-# Delivery notes
+# LingoArena Round 2 — delivery notes
 
-## Suggested commit message
+## Changes
+- Added `api/health.ts` for live OpenAI/Gemini status checks without exposing credentials.
+- Reworked `api/chat.ts` for per-request provider failover, transient retries, short spoken responses, estimated token-budget validation, and short-lived response caching.
+- Updated `src/lib/audio.ts` to avoid MediaElementAudioSource routing for speech, coordinate mic release before playback, and expose audio/API debug state.
+- Updated `src/components/lingo/ui.tsx` for iOS MediaRecorder-first capture, supported MIME selection, adaptive RMS VAD, audio-release handling, and the debug panel.
+- Added `src/lib/lingo/useHandsFreeConversation.ts` for explicit idle/listening/capturing/thinking/speaking states.
+- Updated `src/components/lingo/FreeChat.tsx` to remove the fixed 60-turn cutoff and resume hands-free listening after tutor playback.
+- Updated `src/lib/lingo/chat.functions.ts` to surface request/provider status.
+- Updated `.env.example`, `DEPLOY.md`, `PRODUCT_SPEC.md`, and `CHANGELOG.md`.
 
-feat: improve LingoArena voice learning, unlimited practice, and AI fallbacks
+## Root-cause assessment
+- **Mobile silence (likely, unconfirmed until iPhone testing):** the previous player routed speech through `MediaElementAudioSourceNode` and `AudioContext`; some iOS Safari audio paths become silent or unreliable with that route. The previous capture/playback sequence also lacked a central microphone release barrier. This pass removes that route and adds stop/release-before-playback coordination.
+- **Lite mode after many turns:** `FreeChat` hard-coded a 60-call cutoff (`cloudTurnsRef.current >= 60`) and then used local responses for the remainder of the session. This pass removes the call cutoff and adds a configurable estimated token budget, default 60,000.
 
-This update removes heart-based learning restrictions, adds ten varied offline exercises per lesson, expands Turbo and Fire Combo levels, improves mobile-safe shared audio playback, adds accent preferences and cloud TTS/STT routes with OpenAI/Gemini fallbacks, improves hands-free conversation with the Chloe avatar, and documents setup, environment variables, testing, and known limitations.
+## Validation
+- Source changes were reviewed and static configuration files were checked.
+- A full build and live iPhone audio acceptance test must still be run in an environment with dependencies installed and on a physical iPhone. Do not treat mobile audio as verified until tested on-device.
 
-## Main files changed or added
-
-- `src/lib/audio.ts` — shared audio manager, mobile unlock, persistent audio element, cloud TTS cache, accent selection, mute state, amplitude events, speech recognition helpers.
-- `src/lib/lingo/audio.ts` — compatibility re-export to the shared manager.
-- `src/components/lingo/ui.tsx` — MediaRecorder/STT fallback, silence detection, global sound controls.
-- `src/components/lingo/LearnPath.tsx` — ten varied offline exercises per lesson and retry behavior.
-- `src/components/lingo/SpeechArena.tsx` — automatic model phrase playback, Turbo levels with at least ten questions and retries.
-- `src/components/lingo/GrammarBattle.tsx` — unlimited retries.
-- `src/components/lingo/FireCombo.tsx` — new listening game with seven levels and automatic prompt playback.
-- `src/components/lingo/FreeChat.tsx` — Chloe avatar call UI, hands-free turns, rolling context, accent preference, lite-mode messaging.
-- `src/components/lingo/Settings.tsx` — per-language accent selector.
-- `src/routes/index.tsx` — Fire Combo navigation and global audio controls.
-- `src/index.css` — avatar mouth animation.
-- `src/test/content.test.ts` — exercise uniqueness and level-count validation.
-- `api/chat.ts` — OpenAI/Gemini chat fallback and tutor system prompt.
-- `api/tts.ts` — OpenAI/Gemini TTS fallback.
-- `api/stt.ts` — OpenAI/Gemini transcription fallback.
-- `package.json` — validation and type-checking build steps.
-- `.gitignore` — allow `.env.example` while ignoring real environment files.
-- `.env.example`, `DEPLOY.md`, `PRODUCT_SPEC.md`, `README.md`, `CHANGELOG.md` — setup and architecture documentation.
+## Commit message
+`fix: improve iOS audio playback and per-request AI provider failover`

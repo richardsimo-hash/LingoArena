@@ -1,7 +1,9 @@
 import type { PersonaId, TargetLang } from "./content";
 
+import { setAudioApiStatus } from "./audio";
+
 type ChatMsg = { role: "user" | "assistant"; content: string };
-export type ChatInput = { messages: ChatMsg[]; targetName: string; nativeName: string; persona: string; cefr?: string; accent?: string; rollingSummary?: string };
+export type ChatInput = { messages: ChatMsg[]; targetName: string; nativeName: string; persona: string; cefr?: string; accent?: string; rollingSummary?: string; sessionTokensUsed?: number };
 
 type Reply = { ok: true; text: string } | { ok: false; error: string };
 
@@ -10,11 +12,17 @@ export async function chatReply(data: ChatInput): Promise<Reply> {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify({ ...data, sessionTokensUsed: data.sessionTokensUsed ?? 0 }),
     });
-    if (!res.ok) return { ok: false, error: `http_${res.status}` };
-    const json = (await res.json()) as { text?: string };
-    return json.text ? { ok: true, text: json.text } : { ok: false, error: "empty" };
+    setAudioApiStatus(String(res.status));
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({})) as { error?: string; status?: unknown };
+      const status = typeof json.status === "string" ? json.status : `http_${res.status}`;
+      return { ok: false, error: json.error ? `${json.error}:${status}` : status };
+    }
+    const json = (await res.json()) as { text?: string; provider?: string };
+    setAudioApiStatus(`chat:${json.provider || "unknown"}`);
+    return json.text ? { ok: true, text: json.text, provider: json.provider } as Reply : { ok: false, error: "empty" };
   } catch {
     return { ok: false, error: "network" };
   }
@@ -28,9 +36,25 @@ export function localChat(data: ChatInput & { target: TargetLang; persona: Perso
   const persona = PERSONA[data.persona][data.target];
   const topic = topicOf(n);
   const lines = bank[topic];
-  const idx = Math.abs(hash(last + String(data.messages.length))) % lines.length;
-  const follow = bank.follow[Math.abs(hash(last + "f")) % bank.follow.length];
-  return { reply: `${persona} ${lines[idx]} ${follow}`.replace(/\s+/g, " ").trim(), correction: "" };
+  const storageKey = `lingoarena-local-last-${data.target}`;
+  let previous = "";
+  try { previous = localStorage.getItem(storageKey) || ""; } catch { /* storage unavailable */ }
+  let idx = Math.abs(hash(last + String(data.messages.length))) % lines.length;
+  if (lines.length > 1 && lines[idx] === previous) idx = (idx + 1) % lines.length;
+  const responseLine = lines[idx] || bank.open[0];
+  try { localStorage.setItem(storageKey, responseLine); } catch { /* storage unavailable */ }
+  const keyword = (last.match(/[\p{L}]{4,}/gu) || []).filter((word) => !/^(that|this|with|have|from|your|what|when|where|como|para|pero|porque|este|esta|tengo|quiero|estoy)$/i.test(word)).at(-1);
+  const follow = keyword ? followAbout(data.target, keyword) : bank.follow[Math.abs(hash(last + "f")) % bank.follow.length];
+  return { reply: `${persona} ${responseLine} ${follow}`.replace(/\s+/g, " ").trim(), correction: "" };
+}
+function followAbout(language: TargetLang, keyword: string): string {
+  const safe = keyword.slice(0, 40);
+  const templates: Record<TargetLang, string> = {
+    en: `What do you enjoy most about ${safe}?`, es: `¿Qué es lo que más te gusta de ${safe}?`,
+    fr: `Qu'est-ce que tu apprécies le plus dans ${safe} ?`, de: `Was gefällt dir an ${safe} am besten?`,
+    it: `Che cosa ti piace di più di ${safe}?`, pt: `O que mais gostas em ${safe}?`, ja: `${safe}のどんなところが一番好きですか？`,
+  };
+  return templates[language];
 }
 
 function topicOf(n: string) {
@@ -54,12 +78,12 @@ function hash(s: string) {
 
 const PERSONA: Record<PersonaId, Record<TargetLang, string>> = {
   barista: {
-    es: "Mmm, buen punto.",
-    en: "Hmm, interesting.",
-    fr: "Hmm, intéressant.",
-    de: "Hmm, interessant.",
-    it: "Hmm, interessante.",
-    pt: "Hmm, interessante.",
+    es: "Entiendo lo que quieres decir.",
+    en: "I see what you mean.",
+    fr: "Je vois ce que tu veux dire.",
+    de: "Ich verstehe, was du meinst.",
+    it: "Capisco cosa intendi.",
+    pt: "Entendo o que queres dizer.",
     ja: "なるほど。",
   },
   gatekeeper: {

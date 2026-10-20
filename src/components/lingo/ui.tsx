@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes } from "react";
 import { Mic, MicOff, Volume2, VolumeX, Turtle, AudioLines } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getRecognition, speak, stopSpeaking, unlockAudio, isAudioUnlocked, isAudioMuted, setAudioMuted, transcribeAudio, resolveLocale } from "@/lib/lingo/audio";
+import { getRecognition, speak, stopSpeaking, unlockAudio, isAudioUnlocked, isAudioMuted, setAudioMuted, transcribeAudio, resolveLocale, getAudioDebugState, setAudioMicState } from "@/lib/lingo/audio";
 import { makeT } from "@/lib/lingo/i18n";
 import type { NativeLang } from "@/lib/lingo/content";
 
@@ -48,10 +48,27 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
   const silenceTimerRef = useRef<number | null>(null);
   const analyserFrameRef = useRef<number | null>(null);
   const callbackRef = useRef<{ onDone: (text: string) => void; onInterim?: (text: string) => void } | null>(null);
+  const suppressNextStopRef = useRef(false);
+  const suppressRecognitionEndRef = useRef(false);
+  const recognitionActiveRef = useRef(false);
 
   useEffect(() => {
     setSupported(!!getRecognition() || (typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined"));
+    const releaseBeforePlayback = () => {
+      setAudioMicState("releasing_before_playback");
+      const recorderWasActive = recorderRef.current?.state === "recording";
+      suppressNextStopRef.current = recorderWasActive;
+      suppressRecognitionEndRef.current = recognitionActiveRef.current;
+      try { recRef.current?.abort(); } catch { /* ignored */ }
+      try { if (recorderWasActive) recorderRef.current?.stop(); } catch { /* ignored */ }
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setListening(false);
+      setAudioMicState("released_for_playback");
+    };
+    window.addEventListener("lingo-audio-will-play", releaseBeforePlayback);
     return () => {
+      window.removeEventListener("lingo-audio-will-play", releaseBeforePlayback);
       try { recRef.current?.abort(); } catch { /* ignored */ }
       try { recorderRef.current?.stop(); } catch { /* ignored */ }
       streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -61,7 +78,9 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
   }, []);
 
   const listen = (onDone: (text: string) => void, onInterim?: (text: string) => void, continuous = true) => {
-    const recognition = getRecognition();
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+    const isIOS = /iPad|iPhone|iPod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    const recognition = isIOS ? null : getRecognition();
     stopSpeaking();
     setError(null);
     lastRef.current = "";
@@ -70,7 +89,8 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
       recognition.lang = resolveLocale(locale); recognition.interimResults = true; recognition.continuous = continuous; recognition.maxAlternatives = 1;
       let delivered = false;
       const finish = () => {
-        setListening(false);
+        setListening(false); recognitionActiveRef.current = false; setAudioMicState("idle");
+        if (suppressRecognitionEndRef.current) { suppressRecognitionEndRef.current = false; delivered = true; return; }
         if (delivered) return;
         delivered = true;
         if (lastRef.current) onDone(lastRef.current);
@@ -87,7 +107,7 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
         finish();
       };
       recognition.onend = finish;
-      setListening(true); recRef.current = recognition;
+      setListening(true); recognitionActiveRef.current = true; setAudioMicState("speech_recognition"); recRef.current = recognition;
       try { recognition.start(); } catch (cause) { setListening(false); setError(t("speechErr")); console.warn("[LingoArena STT] Web Speech start failed", cause); }
       return;
     }
@@ -100,7 +120,9 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
         streamRef.current = stream;
-        const recorder = new MediaRecorder(stream);
+        const preferredType = /iPad|iPhone|iPod/i.test(navigator.userAgent) ? "audio/mp4" : "audio/webm;codecs=opus";
+        const mimeType = typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported(preferredType) ? preferredType : undefined;
+        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
         recorderRef.current = recorder; chunksRef.current = [];
         recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
         recorder.onerror = () => setError(t("speechErr"));
@@ -109,6 +131,8 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
           setListening(false);
           stream.getTracks().forEach((track) => track.stop());
           streamRef.current = null;
+          setAudioMicState("idle");
+          if (suppressNextStopRef.current) { suppressNextStopRef.current = false; return; }
           const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
           if (!blob.size) return;
           try {
@@ -123,7 +147,7 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
           }
         };
         recorder.start(250);
-        setListening(true);
+        setListening(true); setAudioMicState("recording");
         silenceTimerRef.current = window.setTimeout(() => {
           if (recorder.state === "recording") { setError(t("noSpeech")); recorder.stop(); }
         }, 15000);
@@ -137,6 +161,8 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
           let heardVoice = false;
           let silentSince = 0;
           const recordingStartedAt = performance.now();
+          const calibration: number[] = [];
+          let noiseFloor = 0.012;
           const check = () => {
             if (recorder.state !== "recording") { void audioContext.close(); return; }
             if (!heardVoice && performance.now() - recordingStartedAt > 12000) {
@@ -145,8 +171,12 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
             analyser.getByteTimeDomainData(data);
             let sum = 0; for (const value of data) { const normalized = (value - 128) / 128; sum += normalized * normalized; }
             const rms = Math.sqrt(sum / data.length);
-            if (rms > 0.035) { heardVoice = true; silentSince = 0; }
-            else if (heardVoice) { if (!silentSince) silentSince = performance.now(); if (performance.now() - silentSince > 1400) { recorder.stop(); void audioContext.close(); return; } }
+            const elapsed = performance.now() - recordingStartedAt;
+            if (elapsed < 500) { calibration.push(rms); noiseFloor = Math.max(0.006, calibration.reduce((a, b) => a + b, 0) / Math.max(1, calibration.length)); }
+            const threshold = Math.max(0.025, noiseFloor * 2.6 + 0.012);
+            if (rms > threshold) { heardVoice = true; silentSince = 0; }
+            else if (heardVoice) { if (!silentSince) silentSince = performance.now(); if (performance.now() - silentSince > 1250 && performance.now() - recordingStartedAt > 400) { recorder.stop(); void audioContext.close(); return; } }
+            if (elapsed > 30000) { recorder.stop(); void audioContext.close(); return; }
             analyserFrameRef.current = requestAnimationFrame(check);
           };
           analyserFrameRef.current = requestAnimationFrame(check);
@@ -159,9 +189,11 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
   };
 
   const stop = () => {
-    try { recRef.current?.stop(); } catch { /* ignored */ }
+    try { recRef.current?.abort(); } catch { /* ignored */ }
     try { if (recorderRef.current?.state === "recording") recorderRef.current.stop(); } catch { /* ignored */ }
-    setListening(false);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    setListening(false); setAudioMicState("idle");
   };
   return { listening, error, supported, listen, stop };
 }
@@ -170,19 +202,34 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
 export function AudioControls() {
   const [unlocked, setUnlocked] = useState(isAudioUnlocked());
   const [muted, setMuted] = useState(isAudioMuted());
+  const [debug, setDebug] = useState(() => new URLSearchParams(typeof window !== "undefined" ? window.location.search : "").get("debug") === "1");
+  const [debugState, setDebugState] = useState(getAudioDebugState());
+  const [health, setHealth] = useState<Record<string, string> | null>(null);
   useEffect(() => {
     const update = (event: Event) => {
       const detail = (event as CustomEvent<{ unlocked: boolean; muted: boolean }>).detail;
-      setUnlocked(detail.unlocked); setMuted(detail.muted);
+      setUnlocked(detail.unlocked); setMuted(detail.muted); setDebugState(getAudioDebugState());
     };
+    const updateDebug = () => setDebugState(getAudioDebugState());
     window.addEventListener("lingo-audio-state", update);
-    return () => window.removeEventListener("lingo-audio-state", update);
-  }, []);
+    const timer = window.setInterval(updateDebug, 1200);
+    if (debug) void fetch("/api/health").then(async (r) => { const data = await r.json(); setHealth(data.providers || {}); }).catch(() => setHealth({ openai: "unreachable", gemini: "unreachable" }));
+    return () => { window.removeEventListener("lingo-audio-state", update); window.clearInterval(timer); };
+  }, [debug]);
   return <div className="flex items-center gap-2">
-    {!unlocked && <button onClick={() => void unlockAudio()} className="rounded-xl border border-flame bg-warn px-2 py-1 text-xs font-bold text-warn-foreground">Tap to enable sound</button>}
+    {!unlocked && <button onClick={() => void unlockAudio()} className="rounded-xl border border-flame bg-warn px-2 py-1 text-xs font-bold text-warn-foreground" title="Check that your phone is not on silent and the volume is up">Tap to enable sound · check silent mode / volume</button>}
     <button aria-label={muted ? "Unmute audio" : "Mute audio"} title={muted ? "Unmute audio" : "Mute audio"} onClick={() => { const next = !muted; setAudioMuted(next); setMuted(next); if (!next) void unlockAudio(); }} className="rounded-xl border-2 border-border bg-card p-2">
       {muted ? <VolumeX className="h-4 w-4" /> : <AudioLines className="h-4 w-4" />}
     </button>
+    {debug && <div className="fixed bottom-3 left-3 z-[100] max-w-[92vw] rounded-xl border border-border bg-card p-3 text-xs shadow-xl">
+      <div className="mb-1 font-extrabold">LingoArena audio debug</div>
+      <div>Audio unlocked: {String(debugState.unlocked)} · Context: {debugState.contextState}</div>
+      <div>TTS: {debugState.currentEngine} · Voices: {debugState.voicesCount}</div>
+      <div>Mic: {debugState.micState} · API: {debugState.lastApiStatus}</div>
+      <div className="max-w-[80vw] break-words">Last TTS error: {debugState.lastTtsError || "none"}</div>
+      <div>OpenAI: {health?.openai || "checking"} · Gemini: {health?.gemini || "checking"}</div>
+      <button className="mt-1 underline" onClick={() => void fetch("/api/health").then(async (r) => { const data = await r.json(); setHealth(data.providers || {}); }).catch(() => setHealth({ openai: "unreachable", gemini: "unreachable" }))}>Refresh provider health</button>
+    </div>}
   </div>;
 }
 

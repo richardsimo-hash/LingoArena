@@ -7,6 +7,7 @@ import { speak, stopSpeaking, unlockAudio, getAccent } from "@/lib/lingo/audio";
 import type { Lingo } from "@/lib/lingo/store";
 import { Btn, Card, MicButton, useSpeech } from "./ui";
 import { cn } from "@/lib/utils";
+import { useHandsFreeConversation } from "@/lib/lingo/useHandsFreeConversation";
 
 type Msg = { role: "user" | "assistant"; content: string; correction?: string };
 
@@ -40,6 +41,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   const [left, setLeft] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [offline, setOffline] = useState(false);
+  const [offlineReason, setOfflineReason] = useState("");
   const speech = useSpeech(tg.locale, s.native);
   const msgsRef = useRef<Msg[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
@@ -80,32 +82,47 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
 
   const sendRef = useRef<(text: string) => void>(() => undefined);
   const rollingSummaryRef = useRef("");
-  const cloudTurnsRef = useRef(0);
+  const sessionTokensRef = useRef(0);
+  const sessionTokenBudget = Math.max(1000, Number(import.meta.env.VITE_SESSION_TOKEN_BUDGET || 60000));
+  const handsFreeController = useHandsFreeConversation({
+    speech,
+    enabled: handsFree,
+    active: phase === "chat",
+    onTranscript: (text) => sendRef.current(text),
+    onInterim: setInput,
+  });
 
   const ask = async (history: Msg[]) => {
     setBusy(true);
+    if (handsFreeRef.current) handsFreeController.thinking();
     if (history.length > 12) {
       const older = history.slice(0, -12).map((message) => `${message.role === "user" ? "Learner" : "Chloe"}: ${message.content}`).join(" | ");
       rollingSummaryRef.current = older.slice(-1100);
     }
     let reply = "", correction = "";
     try {
-      if (cloudTurnsRef.current >= 60) throw new Error("session_lite_mode_budget");
-      cloudTurnsRef.current += 1;
+      const estimatedInputTokens = Math.ceil(history.reduce((sum, message) => sum + message.content.length, 0) / 4);
+      if (sessionTokensRef.current + estimatedInputTokens > sessionTokenBudget) throw new Error("session_token_budget_exceeded");
       const r = await chatReply({
-        messages: history.map(({ role, content }) => ({ role, content })),
+        messages: history.slice(-12).map(({ role, content }) => ({ role, content })),
         targetName: langName(s.target, "en"),
         nativeName: langName(s.native, "en"),
         persona: persona.id,
         cefr: `A${Math.min(2, Math.max(1, Math.ceil((lingo.s.xp + 1) / 300)))}`,
         accent: getAccent(s.target),
         rollingSummary: rollingSummaryRef.current,
+        sessionTokensUsed: sessionTokensRef.current,
       });
       if (!r.ok) throw new Error(r.error);
       ({ reply, correction } = parse(r.text));
+      sessionTokensRef.current += estimatedInputTokens + Math.ceil(r.text.length / 4);
       setOffline(false);
-    } catch {
+      setOfflineReason("");
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
       setOffline(true);
+      setOfflineReason(reason);
+      console.warn("[LingoArena chat] using local phrasebook fallback:", reason);
       const local = localChat({
         messages: history,
         targetName: langName(s.target, "en"),
@@ -121,29 +138,33 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     setMsgs([...base, { role: "assistant", content: reply }]);
     setBusy(false);
     speak(reply, tg.locale, s.rate, {
-      onStart: () => setTalking(true),
+      onStart: () => { setTalking(true); if (handsFreeRef.current) handsFreeController.speaking(); },
       onEnd: () => {
         setTalking(false);
-        // In hands-free mode, open the next listening turn automatically after the avatar finishes.
-        if (handsFreeRef.current && phaseRef.current === "chat") {
-          window.setTimeout(() => {
-            if (handsFreeRef.current && phaseRef.current === "chat") speech.listen((text) => sendRef.current(text), setInput, false);
-          }, 250);
-        }
+        if (handsFreeRef.current && phaseRef.current === "chat") handsFreeController.resumeListening();
       },
     });
   };
 
   const begin = () => {
     void unlockAudio();
-    setMsgs([]); rollingSummaryRef.current = ""; cloudTurnsRef.current = 0; setElapsed(0); setLeft(minutes * 60); setOffline(false); setPhase("chat");
+    setMsgs([]); rollingSummaryRef.current = ""; sessionTokensRef.current = 0; setElapsed(0); setLeft(minutes * 60); setOffline(false); setOfflineReason(""); setPhase("chat");
     phaseRef.current = "chat";
     void ask([]); // the avatar opens the conversation
   };
   const send = (text: string) => {
     const v = text.trim();
     if (!v || busy) return;
+    const lastAssistant = [...msgsRef.current].reverse().find((message) => message.role === "assistant")?.content || "";
+    const normalize = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, "").trim();
+    const normalizedInput = normalize(v), normalizedAssistant = normalize(lastAssistant);
+    if (normalizedInput.length > 12 && normalizedAssistant.length > 12 && (normalizedInput === normalizedAssistant || normalizedAssistant.includes(normalizedInput) || normalizedInput.includes(normalizedAssistant))) {
+      console.info("[LingoArena hands-free] ignored likely echo of Chloe's last response");
+      if (handsFreeRef.current) handsFreeController.resumeListening();
+      return;
+    }
     stopSpeaking(); setTalking(false);
+    if (handsFreeRef.current) handsFreeController.thinking(); else speech.stop();
     const history: Msg[] = [...msgsRef.current, { role: "user", content: v }];
     setMsgs(history); setInput("");
     void ask(history);
@@ -205,7 +226,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
         <div className="flex h-6 items-end gap-1" aria-hidden>
           {[0, 1, 2, 3, 4, 5, 6].map((i) => <span key={i} className={cn("w-1.5 rounded-full bg-emerald-300 transition-all", talking ? "animate-pulse" : "")} style={{ height: talking ? 7 + ((i * 9) % 18) : 4, animationDelay: `${i * 90}ms` }} />)}
         </div>
-        <p className="text-xs font-bold text-white/80">{busy ? "Thinking…" : speech.listening ? "Listening…" : talking ? "Speaking…" : "Ready to talk"}</p>
+        <p className="text-xs font-bold text-white/80">{busy || handsFreeController.state === "thinking" ? "Thinking…" : handsFreeController.state === "capturing" ? "Listening to your answer…" : speech.listening || handsFreeController.state === "listening" ? "Listening…" : talking || handsFreeController.state === "speaking" ? "Speaking…" : "Ready to talk"}</p>
         <div className="absolute right-4 top-4 rounded-full bg-black/25 px-3 py-1 text-xs font-bold">{minutes === 0 ? "∞ session" : mmss(Math.max(0, left))}</div>
       </div>
       <div className="flex flex-col items-center gap-2">
@@ -216,7 +237,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
         <p className="text-xs font-bold text-muted-foreground">{t(`p_${persona.id}` as K)}{busy && ` · ${t("thinking")}`}{speech.listening && ` · ${t("listening")}`}</p>
       </div>
 
-      {offline && <p role="status" className="text-center text-xs font-bold text-muted-foreground">{s.native === "es" ? "Modo ligero: el tutor en la nube no está disponible o se alcanzó el presupuesto de esta sesión. Puedes seguir practicando con respuestas locales." : "Lite mode: cloud AI is unavailable or this session's usage budget was reached. You can keep practicing with local responses."}</p>}
+      {offline && <p role="status" className="text-center text-xs font-bold text-muted-foreground">{s.native === "es" ? `Modo local: ${offlineReason || "el proveedor de IA no está disponible"}. Puedes seguir practicando con respuestas locales.` : `Local mode: ${offlineReason || "the AI provider is unavailable"}. You can keep practicing with local responses.`}</p>}
 
       <div className="max-h-[40vh] min-h-[160px] space-y-3 overflow-y-auto rounded-3xl border-2 border-border bg-card p-4">
         {msgs.map((m, i) => (
@@ -230,13 +251,13 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
 
       {speech.error && <p className="text-sm font-bold text-destructive">{speech.error}</p>}
       <div className="flex items-center justify-between rounded-2xl border border-border bg-card px-3 py-2 text-xs font-bold text-muted-foreground">
-        <span>{handsFree ? "Hands-free conversation enabled" : "Manual microphone mode"}</span>
-        <button className="rounded-lg border border-border px-2 py-1 text-foreground" onClick={() => { const next = !handsFree; handsFreeRef.current = next; setHandsFree(next); if (!next) speech.stop(); else if (!talking && !busy) speech.listen((text) => sendRef.current(text), setInput, false); }}>{handsFree ? "Turn off" : "Turn on"}</button>
+        <span>{handsFree ? `Hands-free enabled · ${handsFreeController.state}` : "Manual microphone mode"}</span>
+        <button className="rounded-lg border border-border px-2 py-1 text-foreground" onClick={() => { const next = !handsFree; handsFreeRef.current = next; setHandsFree(next); if (!next) handsFreeController.stop(); else if (!talking && !busy) window.setTimeout(() => handsFreeController.startListening(), 150); }}>{handsFree ? "Turn off" : "Turn on"}</button>
       </div>
       <div className="flex gap-2">
         <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send(input)} placeholder={t("typeMsg")}
           className="flex-1 rounded-2xl border-2 border-border bg-card p-3 font-bold outline-none focus:border-primary" />
-        {speech.supported && <MicButton listening={speech.listening} onClick={() => (speech.listening ? speech.stop() : speech.listen(send, setInput))} />}
+        {speech.supported && <MicButton listening={speech.listening || handsFreeController.isListening} onClick={() => (speech.listening || handsFreeController.isListening ? (handsFreeController.stop(), speech.stop()) : speech.listen(send, setInput))} />}
         <Btn aria-label={t("send")} onClick={() => send(input)} disabled={!input.trim() || busy}><Send className="h-4 w-4" /></Btn>
       </div>
     </div>

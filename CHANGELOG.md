@@ -31,3 +31,12 @@
 - The avatar is a stylized local illustration, not a photorealistic video avatar. Cloud audio amplitude drives mouth movement where browser audio analysis is available; browser speech synthesis uses a CSS animation fallback.
 - Pronunciation feedback compares recognized words with the expected phrase. It is not a phoneme-level acoustic assessment of accent, stress, or intonation.
 - Dynamic units remix the local phrase bank; the current bank is finite and does not generate endless unique authored curriculum content.
+
+
+## Round 2 — mobile audio and provider resilience
+- Removed Web Audio media-source routing from speech playback to reduce iOS Safari silence/routing issues.
+- Added microphone-release-before-playback coordination and iOS MediaRecorder-first speech capture.
+- Added `/api/health` provider diagnostics and `?debug=1` mobile debug panel.
+- Removed the fixed 60-turn lite-mode cutoff and introduced configurable 60k estimated token budget.
+- Added per-request OpenAI → Gemini failover, transient retry, response caching, concise spoken output, and improved local fallback.
+- Added explicit hands-free conversation state machine and adaptive RMS noise-floor calibration.
