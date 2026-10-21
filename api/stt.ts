@@ -1,13 +1,15 @@
 import { checkRateLimit } from "../server/rateLimit";
+export const config = { maxDuration: 30 };
 type Body = { audioBase64?: string; mimeType?: string; locale?: string };
 export default async function handler(req: { method?: string; body?: Body; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader?: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void } }) {
-  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  try {
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "method_not_allowed", provider: "none", status: 405 });
   const rate = checkRateLimit(req, "stt", 12);
-  if (!rate.allowed) { res.setHeader?.("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ error: "rate_limited", retryAfterSeconds: rate.retryAfterSeconds }); }
+  if (!rate.allowed) { res.setHeader?.("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ ok: false, error: "rate_limited", provider: "none", status: 429, retryAfterSeconds: rate.retryAfterSeconds }); }
   const { audioBase64, mimeType = "audio/webm", locale = "en-US" } = req.body || {};
-  if (!audioBase64) return res.status(400).json({ error: "audio_required" });
+  if (!audioBase64 || typeof audioBase64 !== "string") return res.status(400).json({ ok: false, error: "audio_required", provider: "none", status: 400 });
   const bytes = Buffer.from(audioBase64, "base64");
-  if (!bytes.length || bytes.length > 3 * 1024 * 1024) return res.status(413).json({ error: "audio_size_invalid" });
+  if (!bytes.length || bytes.length > 3 * 1024 * 1024) return res.status(413).json({ ok: false, error: "audio_size_invalid", provider: "none", status: 413 });
   if (process.env.OPENAI_API_KEY) {
     try {
       const form = new FormData();
@@ -35,5 +37,10 @@ export default async function handler(req: { method?: string; body?: Body; heade
       return res.status(200).json({ text, provider: "gemini" });
     } catch (error) { console.warn("[LingoArena API] Gemini STT failed", error); }
   }
-  return res.status(503).json({ error: "stt_providers_unavailable", fallback: "browser_speech_recognition" });
+  const missing = !process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY;
+  return res.status(missing ? 503 : 502).json({ ok: false, error: missing ? "missing_key" : "stt_providers_unavailable", provider: "openai_then_gemini", status: missing ? 503 : 502, fallback: "browser_speech_recognition" });
+  } catch (error) {
+    console.error("[LingoArena API] Unhandled STT handler error", error);
+    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "internal_error", provider: "server", status: 500 });
+  }
 }

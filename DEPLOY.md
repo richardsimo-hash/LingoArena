@@ -50,3 +50,29 @@ Chat uses per-request failover: OpenAI → Gemini → local phrasebook. A failed
 ## Root-cause assessment from code inspection
 
 See `ROOT_CAUSE_REPORT.md` for item-by-item findings against the Round 2 source. The two confirmed code defects were (1) an invalid empty WAV plus an `unlocked` flag set even when playback had failed, and (2) client/server token-budget hard stops that could force local fallback. Actual iPhone playback and live provider configuration still require physical-device and deployed-environment testing.
+
+## iPhone voice diagnostics (round 4)
+After deploying, open `https://YOUR-DOMAIN/ios-audio-test` on the iPhone and tap each test separately (A–F). Use **Copy report** to capture the exact results. Also open `https://YOUR-DOMAIN/?debug=1` to see the shared audio overlay. These tests are diagnostic only; actual iPhone results must be collected on the device.
+
+This patch does not add dependencies or change environment-variable names. Keep `OPENAI_API_KEY` and/or `GEMINI_API_KEY` configured in the Vercel Production environment for cloud TTS/STT. After changing files, push the complete project root and wait for a successful Vercel build before testing the deployed routes.
+
+## API 500 and responsive-layout verification (this patch)
+
+1. In Vercel → Project → Settings → Environment Variables, set `OPENAI_API_KEY` and/or `GEMINI_API_KEY` for **Production**. Set optional model overrides only if you intend to override `.env.example`. Do not add `VITE_` to secret names.
+2. Push the complete project root and wait for the new deployment to finish successfully. Confirm the deployment commit matches the commit you pushed.
+3. Open `https://YOUR-DOMAIN/api/health` directly. It should return JSON with `ok`, `providers`, `models`, `runtime`, and `configured`. If it returns `FUNCTION_INVOCATION_FAILED`, open Vercel → Project → Logs / Runtime Logs and copy the exception plus stack trace for the failing function. The generic HTTP 500 page alone cannot establish the root cause.
+4. Open `https://YOUR-DOMAIN/debug` and run Test chat, Test cloud voice, and provider health. The client falls back to browser speech when `/api/tts` returns non-2xx or non-audio content.
+5. On iPhone/iPad, test the app at CSS viewport widths 320, 360, 375, 390, 393, 412, and 430 px, in portrait and landscape. Verify header controls fit, all six bottom tabs remain accessible, and content is not covered by the Safari toolbar. Repeat with larger text enabled.
+6. To test API functions, run a real chat request from the debug page and a cloud TTS test. `/api/health` alone does not prove that audio bytes can be generated or played.
+
+## Build gate
+
+Run from the repository root before deployment:
+
+```bash
+npm ci
+npm run build
+npm run lint
+```
+
+Deploy only if all three commands exit with code 0. The current delivery environment could not complete `npm ci` due to a dependency-install timeout, so this ZIP has not been build-verified after its latest changes.

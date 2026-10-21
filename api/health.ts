@@ -1,4 +1,5 @@
 import { checkRateLimit } from "../server/rateLimit";
+export const config = { maxDuration: 30 };
 type ProviderStatus = "ok" | "missing_key" | "unauthorized" | "model_not_found" | "quota_exceeded" | "rate_limited" | "timeout" | "provider_error";
 async function checkOpenAI(): Promise<ProviderStatus> {
   const key = process.env.OPENAI_API_KEY;
@@ -28,16 +29,22 @@ async function checkGemini(): Promise<ProviderStatus> {
   } catch (e) { return e instanceof Error && /timeout|abort/i.test(`${e.name} ${e.message}`) ? "timeout" : "provider_error"; }
 }
 export default async function handler(req: { method?: string; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void } }) {
-  if (req.method !== "GET") return res.status(405).json({ error: "method_not_allowed" });
+  try {
+  if (req.method !== "GET") return res.status(405).json({ ok: false, error: "method_not_allowed", status: 405 });
   const rate = checkRateLimit(req, "health", 8);
-  if (!rate.allowed) { res.setHeader("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ error: "rate_limited", retryAfterSeconds: rate.retryAfterSeconds }); }
+  if (!rate.allowed) { res.setHeader("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ ok: false, error: "rate_limited", status: 429, retryAfterSeconds: rate.retryAfterSeconds }); }
   res.setHeader("Cache-Control", "no-store");
   const [openai, gemini] = await Promise.all([checkOpenAI(), checkGemini()]);
   return res.status(200).json({
+    ok: true,
     providers: { openai, gemini },
     models: { openaiChat: process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini", openaiTts: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts", openaiStt: process.env.OPENAI_STT_MODEL || "whisper-1", geminiChat: process.env.GEMINI_CHAT_MODEL || "gemini-3.8-flash", geminiTts: process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts", geminiStt: process.env.GEMINI_STT_MODEL || "gemini-3.8-flash" },
     runtime: { node: process.version, region: process.env.VERCEL_REGION || "unknown", deployment: process.env.VERCEL_ENV || "unknown" },
     configured: { openai: Boolean(process.env.OPENAI_API_KEY), gemini: Boolean(process.env.GEMINI_API_KEY) },
     checkedAt: new Date().toISOString(), sessionTokenBudget: Number(process.env.SESSION_TOKEN_BUDGET || 60000),
   });
+  } catch (error) {
+    console.error("[LingoArena API] Unhandled health handler error", error);
+    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "internal_error", status: 500 });
+  }
 }

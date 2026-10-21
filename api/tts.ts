@@ -1,4 +1,5 @@
 import { checkRateLimit } from "../server/rateLimit";
+export const config = { maxDuration: 30 };
 type Body = { text?: string; locale?: string; rate?: number };
 function pcm16ToWav(pcm: Uint8Array, sampleRate = 24000, channels = 1): Uint8Array {
   const out = new Uint8Array(44 + pcm.length);
@@ -10,17 +11,19 @@ function pcm16ToWav(pcm: Uint8Array, sampleRate = 24000, channels = 1): Uint8Arr
   view.setUint16(32, channels * 2, true); view.setUint16(34, 16, true); write(36, "data"); view.setUint32(40, pcm.length, true); out.set(pcm, 44);
   return out;
 }
-function sendAudio(res: { setHeader: (k: string, v: string) => void; status: (n: number) => { send: (v: Uint8Array | string) => void } }, bytes: Uint8Array, type: string) {
-  res.setHeader("Content-Type", type); res.setHeader("Content-Length", String(bytes.byteLength)); res.setHeader("Accept-Ranges", "bytes"); res.setHeader("Cache-Control", "private, max-age=86400");
-  return res.status(200).send(bytes);
+function sendAudio(res: { setHeader: (k: string, v: string) => void; status: (n: number) => { send: (v: Buffer | string) => void } }, bytes: Uint8Array, type: string) {
+  const audio = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  res.setHeader("Content-Type", type); res.setHeader("Content-Length", String(audio.byteLength)); res.setHeader("Accept-Ranges", "bytes"); res.setHeader("Cache-Control", "private, max-age=86400");
+  return res.status(200).send(audio);
 }
-export default async function handler(req: { method?: string; body?: Body; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void; send: (v: Uint8Array | string) => void } }) {
-  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+export default async function handler(req: { method?: string; body?: Body; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void; send: (v: Buffer | string) => void } }) {
+  try {
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "method_not_allowed", provider: "none", status: 405 });
   const rate = checkRateLimit(req, "tts", 30);
-  if (!rate.allowed) { res.setHeader("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ error: "rate_limited", retryAfterSeconds: rate.retryAfterSeconds }); }
-  const text = String(req.body?.text || "").trim().slice(0, 1600);
+  if (!rate.allowed) { res.setHeader("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ ok: false, error: "rate_limited", provider: "none", status: 429, retryAfterSeconds: rate.retryAfterSeconds }); }
+  const text = String(req.body?.text || "").trim().slice(0, 600);
   const locale = String(req.body?.locale || "en-US").slice(0, 20);
-  if (!text) return res.status(400).json({ error: "text_required" });
+  if (!text) return res.status(400).json({ ok: false, error: "text_required", provider: "none", status: 400 });
   if (process.env.OPENAI_API_KEY) {
     try {
       const response = await fetch("https://api.openai.com/v1/audio/speech", {
@@ -53,11 +56,16 @@ export default async function handler(req: { method?: string; body?: Body; heade
       const data = await response.json() as { candidates?: { content?: { parts?: { inlineData?: { data?: string; mimeType?: string } }[] } }[] };
       const part = data.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)?.inlineData;
       if (!part?.data) throw new Error("gemini_tts_empty");
-      const raw = Uint8Array.from(atob(part.data), (c) => c.charCodeAt(0));
+      const raw = new Uint8Array(Buffer.from(part.data, "base64"));
       const mime = part.mimeType || "audio/L16;rate=24000";
       if (mime.includes("wav") || mime.includes("mpeg") || mime.includes("mp3")) return sendAudio(res, raw, mime.includes("mpeg") || mime.includes("mp3") ? "audio/mpeg" : "audio/wav");
       return sendAudio(res, pcm16ToWav(raw, Number(mime.match(/rate=(\d+)/)?.[1] || 24000)), "audio/wav");
     } catch (error) { console.warn("[LingoArena API] Gemini TTS failed; browser TTS fallback will be used", error); }
   }
-  return res.status(503).json({ error: "tts_providers_unavailable" });
+  const missing = !process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY;
+  return res.status(missing ? 503 : 502).json({ ok: false, error: missing ? "missing_key" : "tts_providers_unavailable", provider: "openai_then_gemini", status: missing ? 503 : 502 });
+  } catch (error) {
+    console.error("[LingoArena API] Unhandled TTS handler error", error);
+    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "internal_error", provider: "server", status: 500 });
+  }
 }

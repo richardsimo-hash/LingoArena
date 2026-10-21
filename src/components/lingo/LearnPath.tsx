@@ -3,7 +3,7 @@ import { Check, Star, X, Sparkles, Volume2, Languages, PencilLine, Mic } from "l
 import { NODES_PER_UNIT, TARGETS, UNITS, nodeConcepts, unitConcepts, CONCEPTS, type Concept, type NativeLang, type TargetLang } from "@/lib/lingo/content";
 import { compareSpeech, shuffle } from "@/lib/lingo/engine";
 import { makeT, unitTitle, langName } from "@/lib/lingo/i18n";
-import { speak, stopSpeaking } from "@/lib/lingo/audio";
+import { speak, stopSpeaking } from "@/lib/voice";
 import { levelFromXp, type Lingo } from "@/lib/lingo/store";
 import { Btn, Card, SpeakButtons, MicButton, useSpeech, ScoreBar } from "./ui";
 import { cn } from "@/lib/utils";
@@ -76,7 +76,7 @@ function Lesson({ lingo, node, reward, onExit }: { lingo: Lingo; node: number; r
   const q = questions[qi]!; const speech = useSpeech(targetInfo.locale, s.native); const isTyped = q.kind === "translate" || q.kind === "fill";
   const optionText = (concept: Concept) => q.direction === "target" ? concept.tr[s.target] : concept.tr[s.native];
   useEffect(() => {
-    if (q.kind === "listen") speak(q.concept.tr[s.target], targetInfo.locale, s.rate);
+    if (q.kind === "listen") speak(q.concept.tr[s.target], { lang: targetInfo.locale, rate: s.rate });
     return () => stopSpeaking();
   }, [q.id, q.kind, q.concept, s.target, s.rate, targetInfo.locale]);
 

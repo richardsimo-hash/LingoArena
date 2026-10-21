@@ -2,7 +2,7 @@ import { useState } from "react";
 import { X, Trash2 } from "lucide-react";
 import { NATIVES, PERSONAS, TARGETS, type NativeLang } from "@/lib/lingo/content";
 import { defaultTarget, type Lingo } from "@/lib/lingo/store";
-import { getAccent, setAccent } from "@/lib/lingo/audio";
+import { getAccent, setAccent } from "@/lib/voice";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { Btn } from "./ui";
 import { cn } from "@/lib/utils";

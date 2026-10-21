@@ -3,7 +3,7 @@ import { Send, PhoneOff, Clock, Headphones, Mic, MicOff } from "lucide-react";
 import { PERSONAS, TARGETS } from "@/lib/lingo/content";
 import { chatReply, localChat } from "@/lib/lingo/chat.functions";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
-import { speak, stopSpeaking, unlockAudio, getAccent } from "@/lib/lingo/audio";
+import { speak, stopSpeaking, unlockAudio, getAccent } from "@/lib/voice";
 import type { Lingo } from "@/lib/lingo/store";
 import { Btn, Card, MicButton, useSpeech } from "./ui";
 import { cn } from "@/lib/utils";
@@ -136,7 +136,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     const base = history.map((m, i) => (correction && i === history.length - 1 && m.role === "user" ? { ...m, correction } : m));
     setMsgs([...base, { role: "assistant", content: reply }]);
     setBusy(false);
-    speak(reply, tg.locale, s.rate, {
+    speak(reply, { lang: tg.locale, rate: s.rate }, {
       onStart: () => { setTalking(true); if (handsFreeRef.current) handsFreeController.speaking(); },
       onEnd: () => {
         setTalking(false);

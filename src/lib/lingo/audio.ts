@@ -1,2 +1,2 @@
-/** Backwards-compatible import path; all audio state lives in src/lib/audio.ts. */
-export * from "../audio";
+/** Backwards-compatible import path. Playback and audio state live in src/lib/voice.ts. */
+export * from "../voice";

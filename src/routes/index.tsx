@@ -4,7 +4,7 @@ import { toast, Toaster } from "sonner";
 import { NATIVES, TARGETS, type NativeLang, type TargetLang } from "@/lib/lingo/content";
 import { useLingo, levelFromXp } from "@/lib/lingo/store";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
-import { sfx, stopSpeaking, unlockAudio } from "@/lib/lingo/audio";
+import { sfx, stopSpeaking, unlockAudio } from "@/lib/voice";
 import { Settings } from "@/components/lingo/Settings";
 import { AudioControls } from "@/components/lingo/ui";
 import { LearnPath } from "@/components/lingo/LearnPath";
@@ -50,7 +50,7 @@ export default function App() {
   const langKey = `${s.native}-${s.target}`;
 
   return (
-    <div className="min-h-screen pb-24 md:pb-0 md:pl-60">
+    <div className="min-h-dvh pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:pb-0 md:pl-60">
       <Toaster position="top-center" />
       {(!s.configured || showSettings) && <Settings lingo={lingo} onClose={() => setShowSettings(false)} />}
 
@@ -66,30 +66,30 @@ export default function App() {
       </aside>
 
       {/* Header */}
-      <header className="sticky top-0 z-30 border-b-2 border-border bg-background/90 backdrop-blur">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-2 px-4 py-3">
-          <div className="flex items-center gap-1.5">
+      <header className="sticky top-0 z-30 border-b-2 border-border bg-background/90 pt-[env(safe-area-inset-top)] backdrop-blur">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between sm:px-4 sm:py-3">
+          <div className="flex min-w-0 items-center gap-1.5">
             <select aria-label={t("nativeLang")} value={s.native} onChange={(e) => update({ native: e.target.value as NativeLang })}
-              className="max-w-[7rem] rounded-xl border-2 border-border bg-card px-2 py-1.5 text-sm font-bold">
+              className="min-w-0 max-w-[42%] flex-1 rounded-xl border-2 border-border bg-card px-1.5 py-2 text-sm font-bold sm:max-w-[7rem] sm:flex-none sm:px-2">
               {NATIVES.map((n) => <option key={n.id} value={n.id}>{langName(n.id, n.id)}</option>)}
             </select>
             <span className="text-muted-foreground">→</span>
             <select aria-label={t("targetLang")} value={s.target} onChange={(e) => update({ target: e.target.value as TargetLang })}
-              className="max-w-[8rem] rounded-xl border-2 border-border bg-card px-2 py-1.5 text-sm font-bold">
+              className="min-w-0 max-w-[48%] flex-1 rounded-xl border-2 border-border bg-card px-1.5 py-2 text-sm font-bold sm:max-w-[8rem] sm:flex-none sm:px-2">
               {TARGETS.filter((x) => x.id !== s.native).map((x) => <option key={x.id} value={x.id}>{x.flag} {langName(x.id, s.native)}</option>)}
             </select>
           </div>
-          <div className="flex items-center gap-3 font-extrabold sm:gap-5">
-            <span className="flex items-center gap-1 text-flame" title={t("streak")}><Flame className="h-6 w-6 fill-current" />{s.streak}</span>
-            <span key={bump} className="flex items-center gap-1 text-gem animate-pop" title="XP"><Gem className="h-6 w-6" />{s.xp}</span>
-            <button onClick={() => update({ rate: s.rate === 1 ? 0.8 : 1 })} className="rounded-lg border-2 border-border px-2 py-0.5 text-xs" title={t("speed")}>{s.rate === 1 ? "1.0×" : "0.8×"}</button>
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 font-extrabold sm:justify-end sm:gap-4">
+            <span className="flex items-center gap-1 text-flame" title={t("streak")}><Flame className="h-5 w-5 shrink-0 fill-current sm:h-6 sm:w-6" />{s.streak}</span>
+            <span key={bump} className="flex items-center gap-1 text-gem animate-pop" title="XP"><Gem className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />{s.xp}</span>
+            <button onClick={() => update({ rate: s.rate === 1 ? 0.8 : 1 })} className="min-h-11 shrink-0 rounded-lg border-2 border-border px-2 py-1 text-xs" title={t("speed")}>{s.rate === 1 ? "1.0×" : "0.8×"}</button>
             <AudioControls />
-            <button aria-label={t("settings")} onClick={() => setShowSettings(true)} className="md:hidden"><SettingsIcon className="h-6 w-6 text-muted-foreground" /></button>
+            <button aria-label={t("settings")} onClick={() => setShowSettings(true)} className="min-h-11 min-w-11 shrink-0 rounded-lg p-2 md:hidden"><SettingsIcon className="h-6 w-6 text-muted-foreground" /></button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl px-4 py-6">
+      <main className="mx-auto w-full min-w-0 max-w-3xl px-3 py-5 sm:px-4 sm:py-6">
         <p className="mb-4 text-sm font-bold text-muted-foreground">{t("learning")} {target.flag} {langName(s.target, s.native)} · {t("level")} {levelFromXp(s.xp)}</p>
         {tab === "learn" && <LearnPath key={langKey} lingo={lingo} reward={reward} fail={fail} />}
         {tab === "arena" && <SpeechArena key={langKey} lingo={lingo} reward={reward} fail={fail} />}
@@ -100,10 +100,10 @@ export default function App() {
       </main>
 
       {/* Mobile nav */}
-      <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t-2 border-border bg-card md:hidden">
+      <nav aria-label="Main navigation" className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-6 border-t-2 border-border bg-card pb-[env(safe-area-inset-bottom)] md:hidden">
         {TABS.map((x) => (
-          <button key={x.id} onClick={() => go(x.id)} className={cn("flex flex-col items-center gap-1 py-2 text-[10px] font-extrabold uppercase", tab === x.id ? "text-secondary" : "text-muted-foreground")}>
-            <x.icon className="h-6 w-6" /><span className="max-w-full truncate px-0.5">{x.id === "fire" ? "Fire Combo" : t(x.key)}</span>
+          <button key={x.id} aria-label={x.id === "learn" ? "Ruta" : x.id === "arena" ? "Arena de pronunciación" : x.id === "grammar" ? "Batalla gramatical" : x.id === "fire" ? "Fire Combo" : x.id === "chat" ? "Charla libre" : "Progreso"} onClick={() => go(x.id)} className={cn("flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 px-0 py-2 text-[10px] font-extrabold", tab === x.id ? "text-secondary" : "text-muted-foreground")}>
+            <x.icon className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" /><span className="mobile-nav-label max-w-full whitespace-nowrap px-0.5">{({ learn: "Ruta", arena: "Arena", grammar: "Batalla", fire: "Fire", chat: "Charla", stats: "Progreso" } as Record<string, string>)[x.id]}</span>
           </button>
         ))}
       </nav>

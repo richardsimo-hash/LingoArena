@@ -4,7 +4,7 @@ import { CONCEPTS, TARGETS, type Concept } from "@/lib/lingo/content";
 import { shuffle } from "@/lib/lingo/engine";
 import { makeT } from "@/lib/lingo/i18n";
 import type { Lingo } from "@/lib/lingo/store";
-import { speak, stopSpeaking, unlockAudio } from "@/lib/lingo/audio";
+import { speak, stopSpeaking, unlockAudio } from "@/lib/voice";
 import { Btn, Card, SpeakButtons } from "./ui";
 import { cn } from "@/lib/utils";
 
@@ -36,7 +36,7 @@ export function FireCombo({ lingo, reward }: { lingo: Lingo; reward: (xp: number
     void unlockAudio(); stopSpeaking(); setLevel(chosen); setQuestions(makeQuestions(chosen)); setIndex(0); setSelected(null); setReveal(false); setEarned(0); setPlaying(true);
   };
   useEffect(() => {
-    if (playing && q) speak(q.concept.tr[s.target], target.locale, Math.min(1.15, s.rate * config.rate));
+    if (playing && q) speak(q.concept.tr[s.target], { lang: target.locale, rate: Math.min(1.15, s.rate * config.rate) });
     return () => stopSpeaking();
     // q changes each turn; playback intentionally starts when the question appears.
   }, [playing, index, questions]); // eslint-disable-line react-hooks/exhaustive-deps

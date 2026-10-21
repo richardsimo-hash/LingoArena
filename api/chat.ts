@@ -1,4 +1,5 @@
 import { checkRateLimit } from "../server/rateLimit";
+export const config = { maxDuration: 30 };
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type Body = {
   messages?: ChatMessage[]; targetName?: string; nativeName?: string; persona?: string;
@@ -70,9 +71,10 @@ async function geminiChat(key: string, system: string, messages: ChatMessage[]) 
   return text;
 }
 export default async function handler(req: { method?: string; body?: Body; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader?: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void } }) {
-  if (req.method !== "POST") return res.status(405).json({ error: "method_not_allowed" });
+  try {
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "method_not_allowed", provider: "none", status: 405 });
   const rate = checkRateLimit(req, "chat", 30);
-  if (!rate.allowed) { res.setHeader?.("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ error: "rate_limited", retryAfterSeconds: rate.retryAfterSeconds }); }
+  if (!rate.allowed) { res.setHeader?.("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ ok: false, error: "rate_limited", provider: "none", status: 429, retryAfterSeconds: rate.retryAfterSeconds }); }
   const data = req.body ?? {};
   const target = String(data.targetName || "the target language").slice(0, 80);
   const native = String(data.nativeName || "the learner's native language").slice(0, 80);
@@ -112,5 +114,9 @@ export default async function handler(req: { method?: string; body?: Body; heade
       return res.status(200).json({ text, provider: "gemini", approxInputTokens, estimatedSessionTokens, budget: budget(), failover: errors });
     } catch (error) { errors.gemini = statusOf(error); console.warn("[LingoArena API] Gemini failed; client phrasebook fallback", errors.gemini); }
   } else errors.gemini = "missing_key";
-  return res.status(503).json({ error: "providers_unavailable", status: errors, fallback: "local_phrasebook" });
+  return res.status(503).json({ ok: false, error: "providers_unavailable", provider: "openai_then_gemini", status: 503, details: errors, fallback: "local_phrasebook" });
+  } catch (error) {
+    console.error("[LingoArena API] Unhandled chat handler error", error);
+    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "internal_error", provider: "server", status: 500 });
+  }
 }

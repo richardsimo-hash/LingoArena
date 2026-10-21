@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { getAudioDebugState, installFirstGestureUnlock, testBrowserVoice, testCloudVoice, testSound } from "@/lib/audio";
+import { getAudioDebugState, installFirstGestureUnlock, testBrowserVoice, testCloudVoice, testSound } from "@/lib/voice";
 
 type TestResult = { status: "pass" | "fail" | "running"; detail: string; latencyMs?: number };
 type Health = { providers?: Record<string, string>; models?: Record<string, string>; runtime?: Record<string, string>; configured?: Record<string, boolean>; checkedAt?: string };

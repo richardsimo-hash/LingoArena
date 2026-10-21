@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes } from "react";
 import { Mic, MicOff, Volume2, VolumeX, Turtle, AudioLines } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getRecognition, speak, stopSpeaking, unlockAudio, isAudioUnlocked, isAudioMuted, setAudioMuted, transcribeAudio, resolveLocale, getAudioDebugState, setAudioMicState, installFirstGestureUnlock } from "@/lib/lingo/audio";
+import { toast } from "sonner";
+import { getRecognition, speak, stopSpeaking, unlockAudio, isAudioUnlocked, isAudioMuted, setAudioMuted, transcribeAudio, resolveLocale, getAudioDebugState, setAudioMicState, installFirstGestureUnlock } from "@/lib/voice";
 import { AudioDebugPanel } from "@/components/lingo/DebugPanel";
 import { makeT } from "@/lib/lingo/i18n";
 import type { NativeLang } from "@/lib/lingo/content";
@@ -26,8 +27,8 @@ export function SpeakButtons({ text, locale, rate, native = "en" }: { text: stri
   const t = makeT(native);
   return (
     <div className="flex gap-2">
-      <button aria-label={t("listenBtn")} onClick={() => speak(text, locale, rate)} className="btn-3d grid h-11 w-11 place-items-center bg-secondary text-secondary-foreground [--btn-shadow:color-mix(in_oklch,var(--secondary)_70%,black)]"><Volume2 className="h-5 w-5" /></button>
-      <button aria-label={t("listenSlow")} onClick={() => speak(text, locale, 0.75)} className="btn-3d grid h-11 w-11 place-items-center border-2 border-border bg-card text-foreground [--btn-shadow:var(--border)]"><Turtle className="h-5 w-5" /></button>
+      <button aria-label={t("listenBtn")} onClick={() => speak(text, { lang: locale, rate })} className="btn-3d grid h-11 w-11 place-items-center bg-secondary text-secondary-foreground [--btn-shadow:color-mix(in_oklch,var(--secondary)_70%,black)]"><Volume2 className="h-5 w-5" /></button>
+      <button aria-label={t("listenSlow")} onClick={() => speak(text, { lang: locale, rate: 0.75 })} className="btn-3d grid h-11 w-11 place-items-center border-2 border-border bg-card text-foreground [--btn-shadow:var(--border)]"><Turtle className="h-5 w-5" /></button>
     </div>
   );
 }
@@ -48,6 +49,9 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
   const chunksRef = useRef<BlobPart[]>([]);
   const silenceTimerRef = useRef<number | null>(null);
   const analyserFrameRef = useRef<number | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const analyserSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const captureContextRef = useRef<AudioContext | null>(null);
   const callbackRef = useRef<{ onDone: (text: string) => void; onInterim?: (text: string) => void } | null>(null);
   const suppressNextStopRef = useRef(false);
   const suppressRecognitionEndRef = useRef(false);
@@ -64,6 +68,13 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
       try { if (recorderWasActive) recorderRef.current?.stop(); } catch { /* ignored */ }
       streamRef.current?.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+      if (analyserFrameRef.current) cancelAnimationFrame(analyserFrameRef.current);
+      analyserFrameRef.current = null;
+      try { analyserSourceRef.current?.disconnect(); } catch { /* source may already be disconnected */ }
+      try { analyserRef.current?.disconnect(); } catch { /* analyser may already be disconnected */ }
+      analyserSourceRef.current = null; analyserRef.current = null;
+      if (captureContextRef.current && captureContextRef.current.state !== "closed") void captureContextRef.current.close().catch((error) => console.warn("[LingoArena STT] capture context close failed", error));
+      captureContextRef.current = null;
       setListening(false);
       setAudioMicState("released_for_playback");
       window.dispatchEvent(new Event("lingo-audio-mic-released"));
@@ -76,6 +87,9 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
       streamRef.current?.getTracks().forEach((track) => track.stop());
       if (silenceTimerRef.current) window.clearTimeout(silenceTimerRef.current);
       if (analyserFrameRef.current) cancelAnimationFrame(analyserFrameRef.current);
+      try { analyserSourceRef.current?.disconnect(); } catch { /* source may already be disconnected */ }
+      try { analyserRef.current?.disconnect(); } catch { /* analyser may already be disconnected */ }
+      if (captureContextRef.current && captureContextRef.current.state !== "closed") void captureContextRef.current.close().catch(() => undefined);
     };
   }, []);
 
@@ -133,6 +147,13 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
           setListening(false);
           stream.getTracks().forEach((track) => track.stop());
           streamRef.current = null;
+          if (analyserFrameRef.current) cancelAnimationFrame(analyserFrameRef.current);
+          analyserFrameRef.current = null;
+          try { analyserSourceRef.current?.disconnect(); } catch { /* already disconnected */ }
+          try { analyserRef.current?.disconnect(); } catch { /* already disconnected */ }
+          analyserSourceRef.current = null; analyserRef.current = null;
+          if (captureContextRef.current && captureContextRef.current.state !== "closed") void captureContextRef.current.close().catch((error) => console.warn("[LingoArena STT] capture context close failed", error));
+          captureContextRef.current = null;
           setAudioMicState("idle");
           if (suppressNextStopRef.current) { suppressNextStopRef.current = false; return; }
           const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
@@ -145,7 +166,28 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
             callbackRef.current?.onDone(transcript);
           } catch (cause) {
             console.warn("[LingoArena STT] server transcription unavailable", cause);
-            setError("Speech transcription is unavailable. Check API configuration or type your answer.");
+            const fallback = isIOS ? getRecognition() : null;
+            if (fallback) {
+              toast.warning("Cloud transcription failed. Using browser speech recognition; playback may be affected until the mic stops.");
+              try {
+                fallback.lang = resolveLocale(locale); fallback.interimResults = true; fallback.continuous = continuous; fallback.maxAlternatives = 1;
+                let delivered = false;
+                fallback.onresult = (event: any) => {
+                  let text = ""; for (let i = 0; i < event.results.length; i++) text += `${event.results[i][0].transcript} `;
+                  lastRef.current = text.trim(); callbackRef.current?.onInterim?.(lastRef.current);
+                };
+                const finishFallback = () => {
+                  setListening(false); recognitionActiveRef.current = false; setAudioMicState("idle");
+                  if (!delivered && lastRef.current) { delivered = true; callbackRef.current?.onDone(lastRef.current); }
+                };
+                fallback.onerror = (event: any) => { if (event.error !== "aborted") setError(`Browser recognition fallback failed: ${event.error}`); finishFallback(); };
+                fallback.onend = finishFallback;
+                recRef.current = fallback; recognitionActiveRef.current = true; setAudioMicState("speech_recognition_fallback"); setListening(true);
+                fallback.start();
+              } catch (fallbackError) {
+                setError(`STT unavailable: ${cause instanceof Error ? cause.message : String(cause)}; browser fallback failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+              }
+            } else setError(`Speech transcription unavailable: ${cause instanceof Error ? cause.message : String(cause)}. Check API configuration or type your answer.`);
           }
         };
         recorder.start(250);
@@ -156,9 +198,9 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
         // Voice activity detection: stop after ~1.4s of low volume. The mic button also stops it.
         const AudioContextCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (AudioContextCtor) {
-          const audioContext = new AudioContextCtor();
-          const analyser = audioContext.createAnalyser(); analyser.fftSize = 512;
-          audioContext.createMediaStreamSource(stream).connect(analyser);
+          const audioContext = new AudioContextCtor(); captureContextRef.current = audioContext;
+          const analyser = audioContext.createAnalyser(); analyser.fftSize = 512; analyserRef.current = analyser;
+          const source = audioContext.createMediaStreamSource(stream); analyserSourceRef.current = source; source.connect(analyser);
           const data = new Uint8Array(analyser.fftSize);
           let heardVoice = false;
           let silentSince = 0;
@@ -220,14 +262,14 @@ export function AudioControls() {
     void unlockAudio().finally(() => { setUnlocking(false); setDebugState(getAudioDebugState()); });
   };
   return <div className="flex items-center gap-2">
-    {!unlocked && <div className="flex max-w-[14rem] flex-col items-start gap-1">
-      <button type="button" onClick={enableSound} onTouchEnd={(event) => { event.preventDefault(); enableSound(); }} className="min-h-11 rounded-xl border border-flame bg-warn px-3 py-2 text-xs font-bold text-warn-foreground" title="Check that silent mode is off and volume is up">{unlocking ? "Enabling sound…" : "Enable sound"}</button>
-      <span className="max-w-[14rem] text-[10px] font-semibold text-muted-foreground">Check silent mode and volume.{debugState.unlockError ? ` Error: ${debugState.unlockError}` : ""}</span>
+    {!unlocked && <div style={{ position: "fixed", right: "max(12px, env(safe-area-inset-right))", bottom: "max(88px, calc(env(safe-area-inset-bottom) + 76px))", zIndex: 2147483000, pointerEvents: "auto" }} className="flex max-w-[min(90vw,18rem)] flex-col items-start gap-1">
+      <button type="button" onClick={enableSound} onTouchEnd={(event) => { event.preventDefault(); enableSound(); }} style={{ minHeight: 48, pointerEvents: "auto", touchAction: "manipulation" }} className="rounded-xl border-2 border-flame bg-warn px-4 py-3 text-sm font-extrabold text-warn-foreground shadow-2xl" title="Check that silent mode is off and volume is up">{unlocking ? "Enabling sound…" : "🔊 Enable sound"}</button>
+      <span role="status" className="max-w-[min(90vw,18rem)] rounded-lg bg-card/95 px-2 py-1 text-[10px] font-semibold text-foreground shadow">{debugState.unlockError ? `Audio blocked: ${debugState.unlockError}` : "Tap to enable sound. Check volume and silent mode."}</span>
     </div>}
     <button aria-label={muted ? "Unmute audio" : "Mute audio"} title={muted ? "Unmute audio" : "Mute audio"} onClick={() => { const next = !muted; setAudioMuted(next); setMuted(next); if (!next) enableSound(); }} className="min-h-11 min-w-11 rounded-xl border-2 border-border bg-card p-2">
       {muted ? <VolumeX className="h-4 w-4" /> : <AudioLines className="h-4 w-4" />}
     </button>
-    {debugState.lastTtsError && <span role="status" className="max-w-28 break-words text-[10px] font-bold text-destructive">Audio error: {debugState.lastTtsError}</span>}
+    {debugState.lastTtsError && <span role="status" className="hidden max-w-28 break-words text-[10px] font-bold text-destructive sm:inline">Audio error: {debugState.lastTtsError}</span>}
     {debug && <AudioDebugPanel compact installGesture={false} />}
   </div>;
 }

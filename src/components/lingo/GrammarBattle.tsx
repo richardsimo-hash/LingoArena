@@ -4,7 +4,7 @@ import { CONCEPTS, PERSONAS, TARGETS, type Concept } from "@/lib/lingo/content";
 import { dictationCheck, makeDeck, type DictationResult } from "@/lib/lingo/engine";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import type { Lingo } from "@/lib/lingo/store";
-import { sfx, speak, stopSpeaking } from "@/lib/lingo/audio";
+import { sfx, speak, stopSpeaking } from "@/lib/voice";
 import { Btn, Card, MicButton, ScoreBar, SpeakButtons, useSpeech } from "./ui";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +31,7 @@ export function GrammarBattle({ lingo, reward, fail }: { lingo: Lingo; reward: (
   const target = c.tr[s.target];
 
   // The bot reads the request aloud at the start of every round.
-  useEffect(() => { speak(target, tg.locale, s.rate); return () => stopSpeaking(); }, [c.id, s.target]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { speak(target, { lang: tg.locale, rate: s.rate }); return () => stopSpeaking(); }, [c.id, s.target]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = () => {
     if (!input.trim() || done) return;

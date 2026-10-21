@@ -4,7 +4,7 @@ import { CONCEPTS, TARGETS, type Concept } from "@/lib/lingo/content";
 import { compareSpeech, makeDeck, shuffle, type SpeechCompare } from "@/lib/lingo/engine";
 import { langName, makeT } from "@/lib/lingo/i18n";
 import type { Lingo } from "@/lib/lingo/store";
-import { sfx, speak, stopSpeaking } from "@/lib/lingo/audio";
+import { sfx, speak, stopSpeaking } from "@/lib/voice";
 import { Btn, Card, MicButton, SpeakButtons, useSpeech } from "./ui";
 import { cn } from "@/lib/utils";
 
@@ -42,7 +42,7 @@ function Duel({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void })
 
   // Speak the model phrase when a new duel begins; SpeakButtons provides replay and slow replay.
   useEffect(() => {
-    speak(target, tg.locale, s.rate);
+    speak(target, { lang: tg.locale, rate: s.rate });
     return () => stopSpeaking();
   }, [c.id, s.target]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -161,7 +161,7 @@ function Rapid({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void; 
     setReveal(false);
     setLastCorrect(null);
     const config = TURBO_LEVELS[level - 1]!;
-    speak(qs[qi]!.c.tr[s.target], tg.locale, Math.min(1.15, s.rate * config.rate));
+    speak(qs[qi]!.c.tr[s.target], { lang: tg.locale, rate: Math.min(1.15, s.rate * config.rate) });
   }, [state, qi, qs]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => () => stopSpeaking(), []);
 

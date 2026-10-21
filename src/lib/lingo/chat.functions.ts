@@ -1,6 +1,6 @@
 import type { PersonaId, TargetLang } from "./content";
 
-import { setAudioApiStatus } from "./audio";
+import { setAudioApiStatus } from "../voice";
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
 export type ChatInput = { messages: ChatMsg[]; targetName: string; nativeName: string; persona: string; cefr?: string; accent?: string; rollingSummary?: string; sessionTokensUsed?: number };
