@@ -12,6 +12,17 @@ let muted = false;
 let speakingToken = 0;
 let unlockError = "";
 const debugLogs: string[] = [];
+// Safari may collect utterances that are not strongly referenced while speaking.
+const activeUtterances: SpeechSynthesisUtterance[] = [];
+
+function retainUtterance(utterance: SpeechSynthesisUtterance) {
+  activeUtterances.push(utterance);
+}
+
+function releaseUtterance(utterance: SpeechSynthesisUtterance) {
+  const index = activeUtterances.indexOf(utterance);
+  if (index >= 0) activeUtterances.splice(index, 1);
+}
 
 function audioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -151,8 +162,21 @@ async function performUnlockAudio(): Promise<boolean> {
     // Critical for iOS: invoke play in the same call stack as the tap, before any await.
     playPromise = audio.play();
     if ("speechSynthesis" in window) {
-      try { const utterance = new SpeechSynthesisUtterance(" "); utterance.volume = 0.01; utterance.rate = 4; window.speechSynthesis.cancel(); window.speechSynthesis.speak(utterance); }
-      catch (error) { logAudio("speechSynthesis unlock probe failed", error); }
+      try {
+        const synth = window.speechSynthesis;
+        if (synth.paused) synth.resume();
+        // Prime Web Speech synchronously in the real user-gesture call stack.
+        const utterance = new SpeechSynthesisUtterance(" ");
+        utterance.volume = 0;
+        utterance.rate = 4;
+        utterance.onend = () => releaseUtterance(utterance);
+        utterance.onerror = () => releaseUtterance(utterance);
+        synth.cancel();
+        activeUtterances.length = 0;
+        retainUtterance(utterance);
+        synth.speak(utterance);
+        if (synth.paused) synth.resume();
+      } catch (error) { logAudio("speechSynthesis unlock probe failed", error); }
     }
     await Promise.all([resumePromise, playPromise, startedPromise]);
     const started = await startedPromise;
@@ -178,9 +202,20 @@ async function performUnlockAudio(): Promise<boolean> {
 
 let unlockPromise: Promise<boolean> | null = null;
 export function unlockAudio(): Promise<boolean> {
+  // This check must run synchronously when called from a pointer/key gesture.
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    try { if (window.speechSynthesis.paused) window.speechSynthesis.resume(); }
+    catch (error) { logAudio("speechSynthesis resume during unlock failed", error); }
+  }
   if (unlocked) return Promise.resolve(true);
   if (unlockPromise) return unlockPromise;
-  unlockPromise = performUnlockAudio().finally(() => { unlockPromise = null; });
+  unlockPromise = performUnlockAudio().then((result) => {
+    if ("speechSynthesis" in window) {
+      try { if (window.speechSynthesis.paused) window.speechSynthesis.resume(); }
+      catch (error) { logAudio("speechSynthesis resume after unlock failed", error); }
+    }
+    return result;
+  }).finally(() => { unlockPromise = null; });
   return unlockPromise;
 }
 
@@ -335,19 +370,27 @@ function browserSpeak(text: string, locale: string, rate: number, token: number,
   if (!("speechSynthesis" in window) || muted) { cb?.onEnd?.(); return; }
   setTtsDebug("browser_speech_synthesis", lastTtsError, lastApiStatus);
   const synth = window.speechSynthesis;
-  synth.cancel();
-  const chunks = text.match(/[^.!?。！？]+[.!?。！？]*/g)?.map((part) => part.trim()).filter(Boolean) ?? [text];
-  const run = async () => {
-    await prepareForPlayback();
-    const voices = await waitForVoices();
-    if (token !== speakingToken) return;
+  try {
+    // Cancel any previous queue before starting this one; explicit cancellation releases its references.
+    synth.cancel();
+    activeUtterances.length = 0;
+    // Do not wait for voiceschanged: on iOS that leaves the user-gesture call stack.
+    // getVoices() is intentionally synchronous; Safari can use its default voice if empty.
+    const voices = synth.getVoices();
     const voice = pickVoice(locale, voices);
+    if (synth.paused) synth.resume();
+
+    const chunks = text.match(/[^.!?。！？]+[.!?。！？]*/g)?.map((part) => part.trim()).filter(Boolean) ?? [text];
     let index = 0;
     let chunkWatchdog = 0;
     const next = () => {
       if (chunkWatchdog) window.clearTimeout(chunkWatchdog);
       if (token !== speakingToken) return;
-      if (index >= chunks.length) { activeSpeechResolve = null; window.setTimeout(() => { if (token === speakingToken) cb?.onEnd?.(); }, 300); return; }
+      if (index >= chunks.length) {
+        activeSpeechResolve = null;
+        window.setTimeout(() => { if (token === speakingToken) cb?.onEnd?.(); }, 300);
+        return;
+      }
       const sentence = chunks[index++]!;
       const utterance = new SpeechSynthesisUtterance(sentence);
       utterance.lang = voice?.lang ?? resolveLocale(locale);
@@ -356,30 +399,36 @@ function browserSpeak(text: string, locale: string, rate: number, token: number,
       utterance.pitch = 1;
       utterance.volume = muted ? 0 : 1;
       utterance.onstart = () => { if (token === speakingToken) cb?.onStart?.(); };
-      utterance.onend = next;
+      utterance.onend = () => { releaseUtterance(utterance); next(); };
       utterance.onerror = (event) => {
+        releaseUtterance(utterance);
         if (token !== speakingToken || event.error === "canceled" || event.error === "interrupted") return;
-        const message = `speechSynthesis ${event.error}`; setTtsDebug("browser_speech_synthesis_failed", message, lastApiStatus);
+        const message = `speechSynthesis ${event.error}`;
+        setTtsDebug("browser_speech_synthesis_failed", message, lastApiStatus);
         next();
       };
       chunkWatchdog = window.setTimeout(() => {
+        if (token !== speakingToken) { releaseUtterance(utterance); return; }
         const message = `speechSynthesis_watchdog_timeout:${sentence.slice(0, 60)}`;
         setTtsDebug("browser_speech_synthesis_timeout", message, lastApiStatus);
+        releaseUtterance(utterance);
         try { synth.cancel(); } catch (error) { logAudio("speechSynthesis cancel after watchdog failed", error); }
         next();
       }, Math.min(12000, Math.max(4500, sentence.length * 120)));
+      // Keep the utterance alive until onend/onerror; Safari can GC unreferenced utterances.
+      retainUtterance(utterance);
       synth.speak(utterance);
+      if (synth.paused) synth.resume();
     };
-    // Chrome can stall if queued utterances are added immediately after cancel.
-    window.setTimeout(next, 40);
-  };
-  activeSpeechResolve = () => { synth.cancel(); };
-  void run().catch((error) => {
+    activeSpeechResolve = () => { synth.cancel(); };
+    // Speak now, not from a later timer/effect, so Safari can honor the primed engine.
+    next();
+  } catch (error) {
     const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     setTtsDebug("browser_speech_synthesis_failed", message, lastApiStatus);
     logAudio("browser speech fallback failed", error);
     cb?.onEnd?.();
-  });
+  }
 }
 
 export type SpeakOptions = { lang: string; accent?: string; rate?: number };
@@ -393,7 +442,13 @@ export function speak(text: string, localeOrOptions: string | SpeakOptions, rate
   const rate = options.rate ?? 1;
   const cb = typeof rateOrCallbacks === "object" ? rateOrCallbacks : legacyCallbacks;
   if (typeof window === "undefined" || !text.trim()) { cb?.onEnd?.(); return false; }
-  void unlockAudio(); // invoked immediately; the first play occurs before any await
+  // Resume a paused iOS speech engine synchronously before any network/async work.
+  if ("speechSynthesis" in window) {
+    try { if (window.speechSynthesis.paused) window.speechSynthesis.resume(); } catch (error) { logAudio("speechSynthesis resume failed", error); }
+    // Read voices synchronously; never wait for voiceschanged before starting speech.
+    try { window.speechSynthesis.getVoices(); } catch (error) { logAudio("speechSynthesis getVoices failed", error); }
+  }
+  void unlockAudio(); // invoked immediately; the first media play occurs before any await
   const token = ++speakingToken;
   const clean = text.trim();
   if (muted) { cb?.onEnd?.(); return true; }
@@ -448,6 +503,7 @@ export function testBrowserVoice(locale = "en-US"): Promise<void> {
       let settled = false;
       const finish = (error?: Error) => {
         if (settled) return; settled = true; window.clearTimeout(watchdog);
+        releaseUtterance(utterance);
         utterance.onstart = null; utterance.onend = null; utterance.onerror = null;
         if (error) { setTtsDebug("browser_voice_failed", error.message, "browser"); reject(error); }
         else { setTtsDebug("browser_voice_test", "", "browser"); resolve(); }
@@ -457,7 +513,11 @@ export function testBrowserVoice(locale = "en-US"): Promise<void> {
       utterance.onstart = () => setTtsDebug("browser_voice_test", "", "browser");
       utterance.onend = () => finish();
       utterance.onerror = (event) => finish(new Error(`speechSynthesis ${event.error}`));
-      try { synth.speak(utterance); } catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
+      try {
+        retainUtterance(utterance);
+        synth.speak(utterance);
+        if (synth.paused) synth.resume();
+      } catch (error) { finish(error instanceof Error ? error : new Error(String(error))); }
     });
   })();
 }
@@ -501,7 +561,10 @@ export function stopSpeaking() {
   if (player) { player.pause(); try { player.currentTime = 0; } catch { /* ignored */ } }
   cancelCurrentPlayback?.(); cancelCurrentPlayback = null;
   stopAmplitudeTracking();
-  if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+  if (typeof window !== "undefined" && "speechSynthesis" in window) {
+    window.speechSynthesis.cancel();
+    activeUtterances.length = 0; // explicit cancellation ends our ownership of queued utterances
+  }
   activeSpeechResolve?.();
   activeSpeechResolve = null;
 }
@@ -558,11 +621,16 @@ if (typeof window !== "undefined") {
   const recoverAudio = () => {
     unlocked = false;
     emitAudioState();
-    if (ctx?.state === "suspended" || (ctx?.state as string | undefined) === "interrupted") {
-      void ctx.resume().then(() => { logAudio("AudioContext resumed after visibility change"); emitAudioState(); }).catch((error) => { unlocked = false; unlockError = error instanceof Error ? error.message : String(error); emitAudioState(); });
+    const audioContext = ctx;
+    if (audioContext && (audioContext.state === "suspended" || (audioContext.state as string) === "interrupted")) {
+      void audioContext.resume().then(() => { logAudio("AudioContext resumed after visibility change"); emitAudioState(); }).catch((error) => { unlocked = false; unlockError = error instanceof Error ? error.message : String(error); emitAudioState(); });
     } else {
       // Re-prime the persistent player on return; if iOS requires a gesture, the banner remains visible.
       void unlockAudio();
+    }
+    if ("speechSynthesis" in window) {
+      try { if (window.speechSynthesis.paused) window.speechSynthesis.resume(); }
+      catch (error) { logAudio("speechSynthesis resume after visibility change failed", error); }
     }
   };
   window.addEventListener("pageshow", recoverAudio);

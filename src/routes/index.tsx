@@ -50,7 +50,7 @@ export default function App() {
   const langKey = `${s.native}-${s.target}`;
 
   return (
-    <div className="min-h-dvh pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:pb-0 md:pl-60">
+    <div onPointerDownCapture={() => { void unlockAudio(); }} onKeyDownCapture={() => { void unlockAudio(); }} className="min-h-dvh pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:pb-0 md:pl-60">
       <Toaster position="top-center" />
       {(!s.configured || showSettings) && <Settings lingo={lingo} onClose={() => setShowSettings(false)} />}
 
