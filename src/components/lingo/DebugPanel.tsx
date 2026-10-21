@@ -136,7 +136,6 @@ export function AudioDebugPanel({ compact = false, locale = "en-US", installGest
       <div className="break-words">User agent: {state.userAgent}</div>
     </div>
     <div className="rounded-xl border border-border p-3"><div className="mb-1 font-extrabold">Provider health</div>
-      <div>OpenAI: <b>{health?.providers?.openai || "not checked"}</b> · key configured: {String(health?.configured?.openai ?? "unknown")}</div>
       <div>Gemini: <b>{health?.providers?.gemini || "not checked"}</b> · key configured: {String(health?.configured?.gemini ?? "unknown")}</div>
       {health?.models && <div className="mt-1 break-words">Models: {Object.entries(health.models).map(([key, value]) => `${key}=${value}`).join(" · ")}</div>}
       {health?.runtime && <div className="mt-1">Runtime: {JSON.stringify(health.runtime)}</div>}

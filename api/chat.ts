@@ -100,13 +100,6 @@ export default async function handler(req: { method?: string; body?: Body; heade
   const cached = requestCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return res.status(200).json({ text: cached.text, provider: cached.provider, cached: true, estimatedSessionTokens, budget: budget() });
   const errors: Record<string, string> = {};
-  if (process.env.OPENAI_API_KEY) {
-    try {
-      const text = await openAIChat(process.env.OPENAI_API_KEY, system, history);
-      requestCache.set(cacheKey, { text, provider: "openai", expiresAt: Date.now() + 5 * 60_000 });
-      return res.status(200).json({ text, provider: "openai", approxInputTokens, estimatedSessionTokens, budget: budget() });
-    } catch (error) { errors.openai = statusOf(error); console.warn("[LingoArena API] OpenAI failed; request-level failover", errors.openai); }
-  } else errors.openai = "missing_key";
   if (process.env.GEMINI_API_KEY) {
     try {
       const text = await geminiChat(process.env.GEMINI_API_KEY, system, history);
@@ -114,7 +107,14 @@ export default async function handler(req: { method?: string; body?: Body; heade
       return res.status(200).json({ text, provider: "gemini", approxInputTokens, estimatedSessionTokens, budget: budget(), failover: errors });
     } catch (error) { errors.gemini = statusOf(error); console.warn("[LingoArena API] Gemini failed; client phrasebook fallback", errors.gemini); }
   } else errors.gemini = "missing_key";
-  return res.status(503).json({ ok: false, error: "providers_unavailable", provider: "openai_then_gemini", status: 503, details: errors, fallback: "local_phrasebook" });
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const text = await openAIChat(process.env.OPENAI_API_KEY, system, history);
+      requestCache.set(cacheKey, { text, provider: "openai", expiresAt: Date.now() + 5 * 60_000 });
+      return res.status(200).json({ text, provider: "openai", approxInputTokens, estimatedSessionTokens, budget: budget() });
+    } catch (error) { errors.openai = statusOf(error); console.warn("[LingoArena API] OpenAI failed; request-level failover", errors.openai); }
+  } else errors.openai = "missing_key";
+  return res.status(503).json({ ok: false, error: "providers_unavailable", provider: "gemini_then_openai", status: 503, details: errors, fallback: "local_phrasebook" });
   } catch (error) {
     console.error("[LingoArena API] Unhandled chat handler error", error);
     return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "internal_error", provider: "server", status: 500 });

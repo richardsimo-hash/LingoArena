@@ -1,32 +1,50 @@
-// GET /api/health        -> which env vars exist + runtime info (no secrets)
-// GET /api/health?probe=1 -> also checks the OpenAI key with a free call
-export default async function handler(req: any, res: any) {
+import { checkRateLimit } from "../server/rateLimit";
+export const config = { maxDuration: 30 };
+type ProviderStatus = "ok" | "missing_key" | "unauthorized" | "model_not_found" | "quota_exceeded" | "rate_limited" | "timeout" | "provider_error";
+async function checkOpenAI(): Promise<ProviderStatus> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return "missing_key";
   try {
-    const out: any = {
-      ok: true,
-      node: process.version,
-      env: {
-        OPENAI_API_KEY: Boolean(process.env.OPENAI_API_KEY),
-        GEMINI_API_KEY: Boolean(process.env.GEMINI_API_KEY),
-        OPENAI_TTS_MODEL: process.env.OPENAI_TTS_MODEL || '(default tts-1)',
-      },
-    };
-    const probe = String((req.query && req.query.probe) || '') === '1';
-    if (probe && process.env.OPENAI_API_KEY) {
-      const c = new AbortController();
-      const t = setTimeout(() => c.abort(), 8000);
-      try {
-        const r = await fetch('https://api.openai.com/v1/models', {
-          headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-          signal: c.signal,
-        });
-        out.openai = r.ok ? 'ok' : r.status === 401 ? 'unauthorized' : r.status === 429 ? 'rate_limited_or_no_quota' : `http_${r.status}`;
-      } catch (e: any) {
-        out.openai = e && e.name === 'AbortError' ? 'timeout' : 'network_error';
-      } finally { clearTimeout(t); }
-    }
-    return res.status(200).json(out);
-  } catch (e: any) {
-    return res.status(500).json({ ok: false, error: String((e && e.message) || e) });
+    const r = await fetch("https://api.openai.com/v1/chat/completions", { method: "POST", signal: AbortSignal.timeout(5000), headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" }, body: JSON.stringify({ model: process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini", messages: [{ role: "user", content: "Reply with OK." }], max_tokens: 2 }) });
+    if (r.ok) return "ok";
+    const body = await r.text().catch(() => "");
+    if (r.status === 401 || r.status === 403) return "unauthorized";
+    if (r.status === 404 || /model_not_found|model .* not found/i.test(body)) return "model_not_found";
+    if (r.status === 429) return /quota|insufficient_quota/i.test(body) ? "quota_exceeded" : "rate_limited";
+    return "provider_error";
+  } catch (e) { return e instanceof Error && /timeout|abort/i.test(`${e.name} ${e.message}`) ? "timeout" : "provider_error"; }
+}
+async function checkGemini(): Promise<ProviderStatus> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return "missing_key";
+  try {
+    const model = process.env.GEMINI_CHAT_MODEL || "gemini-3.8-flash";
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`, { method: "POST", signal: AbortSignal.timeout(5000), headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: "Reply OK." }] }], generationConfig: { maxOutputTokens: 2 } }) });
+    if (r.ok) return "ok";
+    const body = await r.text().catch(() => "");
+    if (r.status === 401 || r.status === 403) return "unauthorized";
+    if (r.status === 404 || /model_not_found|model .* not found/i.test(body)) return "model_not_found";
+    if (r.status === 429) return /quota|limit/i.test(body) ? "quota_exceeded" : "rate_limited";
+    return "provider_error";
+  } catch (e) { return e instanceof Error && /timeout|abort/i.test(`${e.name} ${e.message}`) ? "timeout" : "provider_error"; }
+}
+export default async function handler(req: { method?: string; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void } }) {
+  try {
+  if (req.method !== "GET") return res.status(405).json({ ok: false, error: "method_not_allowed", status: 405 });
+  const rate = checkRateLimit(req, "health", 8);
+  if (!rate.allowed) { res.setHeader("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ ok: false, error: "rate_limited", status: 429, retryAfterSeconds: rate.retryAfterSeconds }); }
+  res.setHeader("Cache-Control", "no-store");
+  const [openai, gemini] = await Promise.all([checkOpenAI(), checkGemini()]);
+  return res.status(200).json({
+    ok: true,
+    providers: { openai, gemini },
+    models: { openaiChat: process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini", openaiTts: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts", openaiStt: process.env.OPENAI_STT_MODEL || "whisper-1", geminiChat: process.env.GEMINI_CHAT_MODEL || "gemini-3.8-flash", geminiTts: process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts", geminiStt: process.env.GEMINI_STT_MODEL || "gemini-3.8-flash" },
+    runtime: { node: process.version, region: process.env.VERCEL_REGION || "unknown", deployment: process.env.VERCEL_ENV || "unknown" },
+    configured: { openai: Boolean(process.env.OPENAI_API_KEY), gemini: Boolean(process.env.GEMINI_API_KEY) },
+    checkedAt: new Date().toISOString(), sessionTokenBudget: Number(process.env.SESSION_TOKEN_BUDGET || 60000),
+  });
+  } catch (error) {
+    console.error("[LingoArena API] Unhandled health handler error", error);
+    return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "internal_error", status: 500 });
   }
 }

@@ -10,6 +10,19 @@ export default async function handler(req: { method?: string; body?: Body; heade
   if (!audioBase64 || typeof audioBase64 !== "string") return res.status(400).json({ ok: false, error: "audio_required", provider: "none", status: 400 });
   const bytes = Buffer.from(audioBase64, "base64");
   if (!bytes.length || bytes.length > 3 * 1024 * 1024) return res.status(413).json({ ok: false, error: "audio_size_invalid", provider: "none", status: 413 });
+  if (process.env.GEMINI_API_KEY) {
+    try {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_STT_MODEL || "gemini-3.8-flash")}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, {
+        method: "POST", signal: AbortSignal.timeout(20000), headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: `Transcribe exactly what is spoken in language/locale ${locale}. Return only the transcription, with no commentary.` }, { inlineData: { mimeType, data: audioBase64 } }] }] }),
+      });
+      if (!response.ok) throw new Error(`gemini_stt_http_${response.status}`);
+      const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+      const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim();
+      if (!text) throw new Error("gemini_stt_empty");
+      return res.status(200).json({ text, provider: "gemini" });
+    } catch (error) { console.warn("[LingoArena API] Gemini STT failed", error); }
+  }
   if (process.env.OPENAI_API_KEY) {
     try {
       const form = new FormData();
@@ -24,21 +37,8 @@ export default async function handler(req: { method?: string; body?: Body; heade
       return res.status(200).json({ text: data.text.trim(), provider: "openai" });
     } catch (error) { console.warn("[LingoArena API] OpenAI STT failed; trying Gemini", error); }
   }
-  if (process.env.GEMINI_API_KEY) {
-    try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_STT_MODEL || "gemini-3.8-flash")}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, {
-        method: "POST", signal: AbortSignal.timeout(20000), headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: `Transcribe exactly what is spoken in language/locale ${locale}. Return only the transcription, with no commentary.` }, { inlineData: { mimeType, data: audioBase64 } }] }] }),
-      });
-      if (!response.ok) throw new Error(`gemini_stt_http_${response.status}`);
-      const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-      const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim();
-      if (!text) throw new Error("gemini_stt_empty");
-      return res.status(200).json({ text, provider: "gemini" });
-    } catch (error) { console.warn("[LingoArena API] Gemini STT failed", error); }
-  }
   const missing = !process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY;
-  return res.status(missing ? 503 : 502).json({ ok: false, error: missing ? "missing_key" : "stt_providers_unavailable", provider: "openai_then_gemini", status: missing ? 503 : 502, fallback: "browser_speech_recognition" });
+  return res.status(missing ? 503 : 502).json({ ok: false, error: missing ? "missing_key" : "stt_providers_unavailable", provider: "gemini_then_openai", status: missing ? 503 : 502, fallback: "browser_speech_recognition" });
   } catch (error) {
     console.error("[LingoArena API] Unhandled STT handler error", error);
     return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "internal_error", provider: "server", status: 500 });
