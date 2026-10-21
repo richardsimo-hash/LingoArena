@@ -547,8 +547,12 @@ if (typeof window !== "undefined") {
   const recoverAudio = () => {
     unlocked = false;
     emitAudioState();
-    if (ctx?.state === "suspended" || (ctx?.state as string | undefined) === "interrupted") {
-      void ctx.resume().then(() => { logAudio("AudioContext resumed after visibility change"); emitAudioState(); }).catch((error) => { unlocked = false; unlockError = error instanceof Error ? error.message : String(error); emitAudioState(); });
+    const audioContext = ctx;
+    if (
+      audioContext &&
+      (audioContext.state === "suspended" || (audioContext.state as string) === "interrupted")
+    ) {
+      void audioContext.resume().then(() => { logAudio("AudioContext resumed after visibility change"); emitAudioState(); }).catch((error) => { unlocked = false; unlockError = error instanceof Error ? error.message : String(error); emitAudioState(); });
     } else {
       // Re-prime the persistent player on return; if iOS requires a gesture, the banner remains visible.
       void unlockAudio();
