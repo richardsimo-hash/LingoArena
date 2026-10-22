@@ -3,7 +3,7 @@ export const config = { maxDuration: 30 };
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type Body = {
   messages?: ChatMessage[]; targetName?: string; nativeName?: string; persona?: string;
-  cefr?: string; accent?: string; rollingSummary?: string; sessionTokensUsed?: number;
+  cefr?: string; accent?: string; rollingSummary?: string; sessionTokensUsed?: number; mode?: string; maxOutputTokens?: number; conversationMode?: string; learnerProfile?: { interests?: string[]; goals?: string[]; recurringMistakes?: string[]; level?: string };
 };
 const PERSONA_STYLE: Record<string, string> = {
   barista: "a warm, witty café barista who is curious about people",
@@ -48,22 +48,22 @@ async function fetchWithRetry(url: string, init: RequestInit, label: string): Pr
   }
   throw last instanceof Error ? last : new Error(`${label}_failed`);
 }
-async function openAIChat(key: string, system: string, messages: ChatMessage[]) {
+async function openAIChat(key: string, system: string, messages: ChatMessage[], outputTokens = 700) {
   const response = await fetchWithRetry("https://api.openai.com/v1/chat/completions", {
     method: "POST", signal: timeoutSignal(12000),
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini", temperature: 0.7, max_tokens: 150, messages: [{ role: "system", content: system }, ...messages] }),
+    body: JSON.stringify({ model: process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini", temperature: 0.7, max_tokens: Math.min(1800, Math.max(150, outputTokens)), messages: [{ role: "system", content: system }, ...messages] }),
   }, "openai_chat");
   const data = await response.json() as { choices?: { message?: { content?: string | null } }[] };
   const text = data.choices?.[0]?.message?.content?.trim();
   if (!text) throw new Error("openai_chat_empty");
   return text;
 }
-async function geminiChat(key: string, system: string, messages: ChatMessage[]) {
+async function geminiChat(key: string, system: string, messages: ChatMessage[], outputTokens = 700) {
   const contents = messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
   const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_CHAT_MODEL || "gemini-3.8-flash")}:generateContent?key=${encodeURIComponent(key)}`, {
     method: "POST", signal: timeoutSignal(12000), headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: { temperature: 0.7, maxOutputTokens: 150 } }),
+    body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: { temperature: 0.7, maxOutputTokens: Math.min(1800, Math.max(150, outputTokens)) } }),
   }, "gemini_chat");
   const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
   const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim();
@@ -81,35 +81,41 @@ export default async function handler(req: { method?: string; body?: Body; heade
   const cefr = String(data.cefr || "B1").slice(0, 8);
   const accent = String(data.accent || "Auto").slice(0, 60);
   const persona = PERSONA_STYLE[String(data.persona || "guide")] || PERSONA_STYLE.guide;
-  const history: ChatMessage[] = (Array.isArray(data.messages) ? data.messages : []).slice(-12).map((m) => ({
-    role: m?.role === "assistant" ? "assistant" : "user", content: String(m?.content || "").slice(0, 800),
+  const exerciseMode = data.mode === "exercise-json";
+  const outputTokens = Math.min(1800, Math.max(150, Number(data.maxOutputTokens || process.env.CHAT_MAX_OUTPUT_TOKENS || (exerciseMode ? 1400 : 700))));
+  const history: ChatMessage[] = (Array.isArray(data.messages) ? data.messages : []).slice(exerciseMode ? -4 : -24).map((m) => ({
+    role: m?.role === "assistant" ? "assistant" : "user", content: String(m?.content || "").slice(0, 1800),
   }));
   if (!history.length) history.push({ role: "user", content: "Start the conversation: greet me warmly and ask one natural question." });
-  const summary = String(data.rollingSummary || "").slice(0, 900);
+  const summary = String(data.rollingSummary || "").slice(0, 1800);
+  const learnerProfile = data.learnerProfile && typeof data.learnerProfile === "object" ? JSON.stringify(data.learnerProfile).slice(0, 700) : "";
   const approxInputTokens = Math.ceil((JSON.stringify(history).length + summary.length) / 4);
   const sessionTokensUsed = Math.max(0, Number(data.sessionTokensUsed) || 0);
   // Budget is diagnostic only: never block a healthy provider because a client estimate is high.
   const estimatedSessionTokens = sessionTokensUsed + approxInputTokens;
-  const system = [
-    `You are Chloe, a warm, curious language tutor. Persona: ${persona}. Learner speaks ${native}, learns ${target}, CEFR ${cefr}, accent ${accent}.`,
-    `Speak mostly in ${target}, suitable for ${cefr}. Reply in 2-4 short spoken sentences, no markdown or emoji. Answer the real question with one useful detail/example, then ask one relevant follow-up. Recast errors naturally; do not overcorrect. Remember the conversation.`,
-    `Return ONLY JSON: {"reply":"spoken response","correction":"brief optional correction or empty string"}.`,
-    summary ? `Earlier context summary: ${summary}` : "",
-  ].filter(Boolean).join(" ");
-  const cacheKey = JSON.stringify({ target, native, cefr, accent, persona, summary, history });
+  const system = exerciseMode
+    ? `Generate language-learning exercises for ${target}, native language ${native}, CEFR ${cefr}. Return ONLY a JSON object {"items":[{"id":"unique-id","prompt":"question","answer":"correct answer","options":[{"text":"...","correct":true},{"text":"...","correct":false},{"text":"...","correct":false},{"text":"...","correct":false},{"text":"...","correct":false}],"cefr":"${cefr}","difficulty":1,"skill":"vocab","topic":"topic"}]}. Produce 10 items. Every item must have at least five unique, plausible options and exactly one correct option. No markdown.`
+    : [
+      `You are Chloe, a warm, curious conversation partner and language tutor. Persona: ${persona}. Learner speaks ${native}, learns ${target}, CEFR ${cefr}, accent ${accent}. Conversation mode: ${String(data.conversationMode || "casual chat").slice(0, 60)}.`,
+      `Speak mostly in ${target}, adapted to ${cefr}. React specifically to what the learner said; use natural contractions and varied openers. Never say "Hmm, interesting" or use generic filler. Share a brief opinion or small anecdotal detail when appropriate, follow tangents, ask one open follow-up question, and never repeat your previous question or reply. Short user turn: 2-3 sentences; longer user turn or explanation request: 4-6 sentences. Correct lightly by recasting naturally; only occasionally give a brief tip. No markdown or emoji because this is spoken aloud.`,
+      `Return ONLY JSON: {"reply":"spoken response","correction":"brief optional correction or empty string"}.`,
+      summary ? `Earlier conversation summary: ${summary}` : "",
+      learnerProfile ? `Learner profile: ${learnerProfile}` : "",
+    ].filter(Boolean).join(" ");
+  const cacheKey = JSON.stringify({ target, native, cefr, accent, persona, summary, history, exerciseMode, conversationMode: data.conversationMode });
   const cached = requestCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return res.status(200).json({ text: cached.text, provider: cached.provider, cached: true, estimatedSessionTokens, budget: budget() });
   const errors: Record<string, string> = {};
   if (process.env.GEMINI_API_KEY) {
     try {
-      const text = await geminiChat(process.env.GEMINI_API_KEY, system, history);
+      const text = await geminiChat(process.env.GEMINI_API_KEY, system, history, outputTokens);
       requestCache.set(cacheKey, { text, provider: "gemini", expiresAt: Date.now() + 5 * 60_000 });
       return res.status(200).json({ text, provider: "gemini", approxInputTokens, estimatedSessionTokens, budget: budget(), failover: errors });
     } catch (error) { errors.gemini = statusOf(error); console.warn("[LingoArena API] Gemini failed; client phrasebook fallback", errors.gemini); }
   } else errors.gemini = "missing_key";
   if (process.env.OPENAI_API_KEY) {
     try {
-      const text = await openAIChat(process.env.OPENAI_API_KEY, system, history);
+      const text = await openAIChat(process.env.OPENAI_API_KEY, system, history, outputTokens);
       requestCache.set(cacheKey, { text, provider: "openai", expiresAt: Date.now() + 5 * 60_000 });
       return res.status(200).json({ text, provider: "openai", approxInputTokens, estimatedSessionTokens, budget: budget() });
     } catch (error) { errors.openai = statusOf(error); console.warn("[LingoArena API] OpenAI failed; request-level failover", errors.openai); }

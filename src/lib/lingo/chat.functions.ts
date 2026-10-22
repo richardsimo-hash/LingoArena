@@ -3,7 +3,7 @@ import type { PersonaId, TargetLang } from "./content";
 import { setAudioApiStatus } from "../voice";
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
-export type ChatInput = { messages: ChatMsg[]; targetName: string; nativeName: string; persona: string; cefr?: string; accent?: string; rollingSummary?: string; sessionTokensUsed?: number };
+export type ChatInput = { messages: ChatMsg[]; targetName: string; nativeName: string; persona: string; cefr?: string; accent?: string; rollingSummary?: string; sessionTokensUsed?: number; conversationMode?: string; learnerProfile?: { interests?: string[]; goals?: string[]; recurringMistakes?: string[]; level?: string } };
 
 type Reply = { ok: true; text: string; provider?: string; latencyMs?: number } | { ok: false; error: string; provider?: string; latencyMs?: number };
 

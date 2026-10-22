@@ -28,7 +28,7 @@ export function FireCombo({ lingo, reward }: { lingo: Lingo; reward: (xp: number
     const cfg = FIRE_COMBO_LEVELS[chosen - 1]!; const deck = shuffle(CONCEPTS);
     return Array.from({ length: cfg.count }, (_, i) => {
       const concept = deck[i % deck.length]!;
-      const options = shuffle([concept, ...shuffle(CONCEPTS.filter((c) => c.id !== concept.id)).slice(0, 3)]);
+      const options = shuffle([concept, ...shuffle(CONCEPTS.filter((c) => c.id !== concept.id)).slice(0, 5)]);
       return { concept, options };
     });
   };

@@ -30,6 +30,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   const persona = PERSONAS.find((p) => p.id === s.persona)!;
   const [phase, setPhase] = useState<"setup" | "chat" | "summary">("setup");
   const [minutes, setMinutes] = useState(0);
+  const [conversationMode, setConversationMode] = useState("Casual chat");
   const [handsFree, setHandsFree] = useState(true);
   const handsFreeRef = useRef(true);
   const [msgs, setMsgs] = useState<Msg[]>([]);
@@ -95,15 +96,15 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   const ask = async (history: Msg[]) => {
     setBusy(true);
     if (handsFreeRef.current) handsFreeController.thinking();
-    if (history.length > 12) {
-      const older = history.slice(0, -12).map((message) => `${message.role === "user" ? "Learner" : "Chloe"}: ${message.content}`).join(" | ");
+    if (history.length > 24) {
+      const older = history.slice(0, -24).map((message) => `${message.role === "user" ? "Learner" : "Chloe"}: ${message.content}`).join(" | ");
       rollingSummaryRef.current = older.slice(-1100);
     }
     let reply = "", correction = "";
     try {
       const estimatedInputTokens = Math.ceil(history.reduce((sum, message) => sum + message.content.length, 0) / 4);
       const r = await chatReply({
-        messages: history.slice(-12).map(({ role, content }) => ({ role, content })),
+        messages: history.slice(-24).map(({ role, content }) => ({ role, content })),
         targetName: langName(s.target, "en"),
         nativeName: langName(s.native, "en"),
         persona: persona.id,
@@ -111,6 +112,8 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
         accent: getAccent(s.target),
         rollingSummary: rollingSummaryRef.current,
         sessionTokensUsed: sessionTokensRef.current,
+        conversationMode,
+        learnerProfile: { level: `A${Math.min(2, Math.max(1, Math.ceil((lingo.s.xp + 1) / 300)))}`, goals: ["speak more naturally", "build vocabulary"] },
       });
       if (!r.ok) throw new Error(r.error);
       ({ reply, correction } = parse(r.text));
@@ -180,6 +183,13 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
         </div>
         <h2 className="text-3xl font-extrabold">{t("chatTitle")}</h2>
         <p className="text-muted-foreground">Practica sin límite de tiempo. Activa el modo manos libres para conversar sin pulsar el micrófono en cada turno.</p>
+        <div className="space-y-2 text-left">
+          <p className="text-sm font-extrabold">Modo de conversación</p>
+          <div className="grid grid-cols-2 gap-2">
+            {["Casual chat", "Daily life roleplay", "Debate/opinions", "Storytelling"].map((mode) => <button key={mode} onClick={() => setConversationMode(mode)} className={cn("min-h-11 rounded-xl border-2 p-3 text-sm font-bold", conversationMode === mode ? "border-primary bg-accent text-accent-foreground" : "border-border")}>{({"Casual chat":"Charla casual", "Daily life roleplay":"Situaciones cotidianas", "Debate/opinions":"Debate y opiniones", "Storytelling":"Contar historias"} as Record<string,string>)[mode]}</button>)}
+          </div>
+          <p className="text-xs text-muted-foreground">Sugerencias: viajes, trabajo, comida, cultura, tecnología y planes.</p>
+        </div>
         <div className="grid grid-cols-4 gap-2">
           {DURATIONS.map((d) => (
             <button key={d} onClick={() => setMinutes(d)}

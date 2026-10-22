@@ -31,6 +31,15 @@ describe("lesson exercise validation", () => {
         expect(exercises.length, `unit ${unit + 1}, lesson ${node + 1} needs at least 10 questions`).toBeGreaterThanOrEqual(10);
         const prompts = exercises.map((exercise) => exercise.prompt.trim().toLowerCase());
         expect(new Set(prompts).size, `duplicate prompts in unit ${unit + 1}, lesson ${node + 1}`).toBe(prompts.length);
+        for (const exercise of exercises) {
+          expect(exercise.options.length, `${exercise.id} needs at least five options`).toBeGreaterThanOrEqual(5);
+          expect(new Set(exercise.options.map((option) => option.id)).size).toBe(exercise.options.length);
+          expect(exercise.cefr).toMatch(/^(A1|A2|B1|B2|C1)$/);
+          expect(exercise.difficulty).toBeGreaterThanOrEqual(1);
+          expect(exercise.difficulty).toBeLessThanOrEqual(100);
+          expect(exercise.skill).toBeTruthy();
+          expect(exercise.topic).toBeTruthy();
+        }
       }
     }
   });

@@ -23,13 +23,47 @@ export const PERSONAS: { id: PersonaId; name: string; emoji: string; blurb: stri
 ];
 
 /** Unit titles are translated in i18n.ts (unitTitle). `title` is the English fallback. */
-export const UNITS = [
-  { title: "Greetings & Politeness", emoji: "👋" },
-  { title: "Cafés & Food", emoji: "🥐" },
-  { title: "Directions & Transport", emoji: "🧭" },
-  { title: "Shopping & Hotels", emoji: "🛍️" },
-  { title: "Health & Emergencies", emoji: "🚑" },
+export type CEFR = "A1" | "A2" | "B1" | "B2" | "C1";
+export type CurriculumUnit = { id: number; title: string; emoji: string; theme: string; grammar: string; vocabularyBand: string; cefr: CEFR };
+const UNIT_SEEDS: Omit<CurriculumUnit, "id" | "cefr">[] = [
+  { title: "Greetings & Politeness", emoji: "👋", theme: "social introductions", grammar: "be; subject pronouns; basic questions", vocabularyBand: "high-frequency greetings" },
+  { title: "Cafés & Food", emoji: "🥐", theme: "food and ordering", grammar: "countable nouns; would like; articles", vocabularyBand: "food and quantities" },
+  { title: "Directions & Transport", emoji: "🧭", theme: "navigation", grammar: "imperatives; prepositions of place", vocabularyBand: "places and transport" },
+  { title: "Shopping & Hotels", emoji: "🛍️", theme: "travel services", grammar: "prices; polite requests; comparatives", vocabularyBand: "shopping and accommodation" },
+  { title: "Health & Emergencies", emoji: "🚑", theme: "health and safety", grammar: "have got; should; urgent requests", vocabularyBand: "body and assistance" },
+  { title: "Daily Routines", emoji: "⏰", theme: "everyday habits", grammar: "present simple; frequency adverbs", vocabularyBand: "routine verbs" },
+  { title: "Family & Relationships", emoji: "👨‍👩‍👧", theme: "family", grammar: "possessives; have/has; descriptions", vocabularyBand: "family and personality" },
+  { title: "Home & Neighbourhood", emoji: "🏡", theme: "home", grammar: "there is/are; prepositions", vocabularyBand: "rooms and local places" },
+  { title: "Work & Study", emoji: "💼", theme: "work and education", grammar: "present continuous; can/could", vocabularyBand: "jobs and learning" },
+  { title: "Past Experiences", emoji: "📷", theme: "memories", grammar: "past simple; regular and irregular verbs", vocabularyBand: "past-time expressions" },
+  { title: "Plans & Invitations", emoji: "📅", theme: "future plans", grammar: "going to; invitations; arrangements", vocabularyBand: "planning phrases" },
+  { title: "Travel Problems", emoji: "🧳", theme: "travel disruptions", grammar: "past simple vs present perfect", vocabularyBand: "delays and solutions" },
+  { title: "Stories & Sequencing", emoji: "📖", theme: "storytelling", grammar: "sequencers; past continuous", vocabularyBand: "narrative connectors" },
+  { title: "Opinions & Reasons", emoji: "💬", theme: "opinions", grammar: "because; although; giving reasons", vocabularyBand: "opinion phrases" },
+  { title: "Media & Technology", emoji: "📱", theme: "digital life", grammar: "present perfect; phrasal verbs", vocabularyBand: "technology and online life" },
+  { title: "Environment & Community", emoji: "🌱", theme: "environment", grammar: "first conditional; quantifiers", vocabularyBand: "sustainability terms" },
+  { title: "Health & Lifestyle", emoji: "🧘", theme: "wellbeing", grammar: "should; ought to; advice", vocabularyBand: "health collocations" },
+  { title: "Culture & Traditions", emoji: "🎭", theme: "culture", grammar: "used to; passive introduction", vocabularyBand: "cultural practices" },
+  { title: "Decisions & Possibilities", emoji: "🧩", theme: "choices", grammar: "second conditional; might/could", vocabularyBand: "possibility and consequence" },
+  { title: "Explaining Processes", emoji: "⚙️", theme: "processes", grammar: "passive voice; sequencing", vocabularyBand: "process verbs" },
+  { title: "Professional Communication", emoji: "📨", theme: "workplace communication", grammar: "formal requests; indirect questions", vocabularyBand: "professional register" },
+  { title: "Negotiation & Compromise", emoji: "🤝", theme: "negotiation", grammar: "modals of obligation; concessions", vocabularyBand: "negotiation language" },
+  { title: "News & Current Affairs", emoji: "📰", theme: "news", grammar: "reported speech; passive voice", vocabularyBand: "news and evidence" },
+  { title: "Debate & Persuasion", emoji: "🎙️", theme: "argumentation", grammar: "hedging; contrast clauses", vocabularyBand: "persuasive language" },
+  { title: "Science & Innovation", emoji: "🔬", theme: "innovation", grammar: "complex noun phrases; relative clauses", vocabularyBand: "technical concepts" },
+  { title: "Society & Ethics", emoji: "⚖️", theme: "ethics", grammar: "mixed conditionals; nuance", vocabularyBand: "abstract and ethical terms" },
+  { title: "Leadership & Strategy", emoji: "🧭", theme: "leadership", grammar: "emphasis; inversion", vocabularyBand: "strategic collocations" },
+  { title: "Literature & Interpretation", emoji: "📚", theme: "interpretation", grammar: "subjunctive patterns; modality", vocabularyBand: "literary language" },
+  { title: "Complex Social Situations", emoji: "🌐", theme: "social nuance", grammar: "register shifts; idiomatic clauses", vocabularyBand: "idioms and pragmatics" },
+  { title: "Fluent Expression & Synthesis", emoji: "✨", theme: "synthesis and nuance", grammar: "discourse markers; complex syntax", vocabularyBand: "advanced collocations and idioms" },
 ];
+const cefrForUnit = (id: number): CEFR => id <= 6 ? "A1" : id <= 12 ? "A2" : id <= 20 ? "B1" : id <= 30 ? "B2" : "C1";
+export const UNITS: CurriculumUnit[] = UNIT_SEEDS.map((u, i) => ({ ...u, id: i + 1, cefr: cefrForUnit(i + 1) }));
+export function curriculumUnit(unitIndex: number): CurriculumUnit {
+  if (unitIndex < UNITS.length) return UNITS[unitIndex]!;
+  const id = unitIndex + 1;
+  return { id, title: `Advanced generated practice ${id}`, emoji: "✨", theme: "adaptive mixed practice", grammar: "adaptive review and extension", vocabularyBand: "generated vocabulary above current mastery", cefr: cefrForUnit(id) };
+}
 export const NODES_PER_UNIT = 3;
 export const CONCEPTS_PER_NODE = 3;
 
