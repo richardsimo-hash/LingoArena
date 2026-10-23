@@ -147,5 +147,8 @@ export const CONCEPTS: Concept[] = DATA.flatMap((rows, unit) =>
   })),
 );
 
+/** Number of units that have hand-authored phrases in DATA. Later units rely on generated/adaptive practice. */
+export const AUTHORED_UNIT_COUNT = DATA.length;
+
 export const unitConcepts = (unit: number) => CONCEPTS.filter((c) => c.unit === unit);
 export const nodeConcepts = (unit: number, node: number) => CONCEPTS.filter((c) => c.unit === unit && c.node === node);

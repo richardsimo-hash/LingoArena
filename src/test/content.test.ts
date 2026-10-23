@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CONCEPTS, NODES_PER_UNIT, CONCEPTS_PER_NODE, TARGETS, UNITS, nodeConcepts } from "@/lib/lingo/content";
+import { AUTHORED_UNIT_COUNT, CONCEPTS, NODES_PER_UNIT, CONCEPTS_PER_NODE, TARGETS, UNITS, nodeConcepts } from "@/lib/lingo/content";
 import { S, UI_ORDER } from "@/lib/lingo/i18n";
 import { compareSpeech, dictationCheck } from "@/lib/lingo/engine";
 import { buildLessonExercises } from "@/components/lingo/LearnPath";
@@ -16,8 +16,11 @@ describe("lesson content", () => {
   it("has complete translations for every concept", () => {
     for (const c of CONCEPTS) for (const { id } of TARGETS) expect(c.tr[id]?.trim(), `${c.id}/${id}`).toBeTruthy();
   });
-  it("gives every lesson its own concepts", () => {
-    for (let u = 0; u < UNITS.length; u++)
+  it("gives every authored lesson its own concepts", () => {
+    // Units beyond AUTHORED_UNIT_COUNT use generated/adaptive practice, so only authored units are checked here.
+    expect(AUTHORED_UNIT_COUNT).toBeGreaterThan(0);
+    expect(AUTHORED_UNIT_COUNT).toBeLessThanOrEqual(UNITS.length);
+    for (let u = 0; u < AUTHORED_UNIT_COUNT; u++)
       for (let n = 0; n < NODES_PER_UNIT; n++) expect(nodeConcepts(u, n)).toHaveLength(CONCEPTS_PER_NODE);
   });
 });
