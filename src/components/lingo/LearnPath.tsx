@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Star, X, Sparkles, Volume2, Languages, PencilLine, Mic } from "lucide-react";
-import { NODES_PER_UNIT, TARGETS, UNITS, curriculumUnit, nodeConcepts, unitConcepts, CONCEPTS, type Concept, type NativeLang, type TargetLang } from "@/lib/lingo/content";
+import { NODES_PER_UNIT, TARGETS, UNITS, nodeConcepts, unitConcepts, CONCEPTS, type Concept, type NativeLang, type TargetLang } from "@/lib/lingo/content";
 import { compareSpeech, shuffle } from "@/lib/lingo/engine";
 import { makeT, unitTitle, langName } from "@/lib/lingo/i18n";
 import { speak, stopSpeaking } from "@/lib/voice";
@@ -10,28 +10,17 @@ import { cn } from "@/lib/utils";
 
 const UNIT_STYLE = ["bg-primary text-primary-foreground", "bg-secondary text-secondary-foreground", "bg-flame text-primary-foreground", "bg-heart text-primary-foreground", "bg-accent text-accent-foreground"];
 const OFFSET = [0, 56, -56];
-export const MIN_OPTIONS = 5;
 type ExerciseKind = "choose" | "listen" | "translate" | "fill" | "speak";
-type Exercise = { id: string; kind: ExerciseKind; concept: Concept; prompt: string; answer: string; options: Concept[]; direction: "target" | "native"; cefr: string; difficulty: number; skill: "listen" | "speak" | "translate" | "grammar" | "vocab"; topic: string };
+type Exercise = { id: string; kind: ExerciseKind; concept: Concept; prompt: string; answer: string; options: Concept[]; direction: "target" | "native" };
 
 /** Ten varied, offline-capable exercises per lesson; no API call is needed for core practice. */
 export function buildLessonExercises(unit: number, node: number, native: NativeLang, target: TargetLang): Exercise[] {
-  // Never wrap a learner back to Unit 1. Authored concepts are used for Units 1–5;
-  // later units compose a deterministic, unit-specific set from the offline pool until cloud-generated content is available.
-  const actualUnit = unit < UNITS.length ? unit : -1;
-  const pool = actualUnit >= 0 ? unitConcepts(actualUnit) : CONCEPTS;
-  const seenKey = `lingoarena-seen-exercises-v2-${target}`;
-  let seen: string[] = [];
-  try { seen = JSON.parse(localStorage.getItem(seenKey) || "[]") as string[]; } catch { seen = []; }
-  const authored = actualUnit >= 0 ? nodeConcepts(actualUnit, node) : [];
-  const available = pool.filter((c) => !seen.includes(c.id));
-  const candidates = available.length >= 3 ? available : pool;
-  const offset = Math.abs((unit + 1) * 97 + (node + 1) * 31) % Math.max(1, candidates.length);
-  const concepts = authored.length ? authored : Array.from({ length: 3 }, (_, i) => candidates[(offset + i * 7) % candidates.length]!).filter(Boolean);
-  const curriculum = curriculumUnit(unit);
+  const actualUnit = unit % UNITS.length;
+  const concepts = nodeConcepts(actualUnit, node % NODES_PER_UNIT);
+  const pool = unitConcepts(actualUnit).length ? unitConcepts(actualUnit) : CONCEPTS;
   const kinds: ExerciseKind[] = ["choose", "listen", "translate", "fill", "choose", "speak", "listen", "translate", "fill", "choose"];
   return kinds.map((kind, i) => {
-    const concept = concepts[i % concepts.length] ?? candidates[(offset + i) % candidates.length] ?? CONCEPTS[(unit * 13 + node * 3 + i) % CONCEPTS.length]!;
+    const concept = concepts[i % concepts.length] ?? CONCEPTS[(unit * 13 + node * 3 + i) % CONCEPTS.length]!;
     const source = concept.tr[native] || concept.tr.en;
     const targetText = concept.tr[target] || concept.tr.es;
     const direction: "target" | "native" = kind === "listen" || (kind === "choose" && i === 9) ? "native" : "target";
@@ -41,15 +30,9 @@ export function buildLessonExercises(unit: number, node: number, native: NativeL
       : kind === "fill" ? `Fill-in challenge ${i + 1}: Complete the ${langName(target, "en")} phrase: “${targetText.replace(/\b[\p{L}’'-]+/u, "_____ ").replace(/\s+/g, " ").trim()}”.`
       : `Speaking challenge ${i + 1}: Say this phrase in ${langName(target, "en")}.`;
     const answer = kind === "fill" ? (targetText.match(/^[\p{L}’'-]+/u)?.[0] || targetText) : direction === "target" ? targetText : source;
-    const optionPool = shuffle(CONCEPTS.filter((candidate) => candidate.id !== concept.id && candidate.tr[target] !== concept.tr[target] && candidate.tr[native] !== concept.tr[native]));
-    const options = shuffle([concept, ...optionPool.slice(0, Math.max(MIN_OPTIONS - 1, curriculum.cefr === "B2" || curriculum.cefr === "C1" ? 5 : 4))]);
-    const exerciseId = `v2-${target}-u${unit + 1}-n${node + 1}-q${i + 1}-${concept.id}`;
-    try {
-      const current = new Set(JSON.parse(localStorage.getItem(seenKey) || "[]") as string[]);
-      current.add(exerciseId);
-      localStorage.setItem(seenKey, JSON.stringify([...current].slice(-10000)));
-    } catch { /* storage is optional */ }
-    return { id: exerciseId, kind, concept, prompt: `${curriculum.cefr} · ${curriculum.title} — ${prompt}`, answer, options, direction, cefr: curriculum.cefr, difficulty: Math.min(100, Math.max(1, unit < 6 ? 10 + unit * 5 : unit < 12 ? 35 + (unit - 6) * 4 : unit < 20 ? 55 + (unit - 12) * 3 : 80 + Math.min(20, unit - 20))), skill: kind === "listen" ? "listen" : kind === "speak" ? "speak" : kind === "translate" ? "translate" : kind === "fill" ? "grammar" : "vocab", topic: curriculum.theme };
+    const optionPool = shuffle(pool.filter((candidate) => candidate.id !== concept.id));
+    const options = shuffle([concept, ...optionPool.slice(0, 3)]);
+    return { id: `u${unit}-n${node}-q${i + 1}`, kind, concept, prompt, answer, options, direction };
   });
 }
 
@@ -61,12 +44,12 @@ export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: 
   if (lesson !== null) return <Lesson lingo={lingo} node={lesson} reward={reward} onExit={() => setLesson(null)} />;
   return <div className="space-y-10 pb-10">
     {Array.from({ length: visibleUnitCount }, (_, ui) => {
-      const unit = curriculumUnit(ui); const generated = ui >= UNITS.length;
+      const unit = UNITS[ui % UNITS.length]!; const generated = ui >= UNITS.length;
       return <section key={ui}>
         <div className={cn("mb-6 rounded-3xl p-5", UNIT_STYLE[ui % UNIT_STYLE.length])}>
           <p className="text-xs font-extrabold uppercase opacity-80">{t("unit")} {ui + 1}{generated ? " · MIXED PRACTICE" : ""}</p>
-          <h2 className="text-2xl font-extrabold">{generated ? <><Sparkles className="mr-1 inline h-5 w-5" />{unit.title}</> : <>{unit.emoji} {unitTitle(ui, s.native)}</>}</h2>
-          <p className="mt-1 text-sm font-bold opacity-80">{unit.cefr} · {unit.theme} · {unit.grammar} · 10 varied exercises · no locks</p>
+          <h2 className="text-2xl font-extrabold">{generated ? <><Sparkles className="mr-1 inline h-5 w-5" />{s.native === "es" ? "Práctica infinita" : "Endless practice"}</> : <>{unit.emoji} {unitTitle(ui, s.native)}</>}</h2>
+          <p className="mt-1 text-sm font-bold opacity-80">10 varied exercises per lesson · no hearts · no locks</p>
         </div>
         <div className="flex flex-col items-center gap-5">
           {Array.from({ length: NODES_PER_UNIT }).map((_, ni) => {
