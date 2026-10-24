@@ -459,9 +459,16 @@ export function speak(text: string, localeOrOptions: string | SpeakOptions, rate
     const chunks = clean.match(/[^.!?。！？]+[.!?。！？]*/g)?.map((part) => part.trim()).filter(Boolean) ?? [clean];
     let started = false;
     const onStartOnce = () => { if (!started) { started = true; cb?.onStart?.(); } };
+    // Fetch the next sentence while the current clip plays. Previously every
+    // sentence waited for its own network round-trip after the previous clip ended,
+    // creating a long silence between otherwise short spoken sentences.
+    let nextAudioPromise: Promise<string | null> | null = cloudTts(chunks[0]!, locale, rate);
     for (let index = 0; index < chunks.length; index++) {
-      const audio = await cloudTts(chunks[index]!, locale, rate);
+      const audio = await nextAudioPromise;
       if (token !== speakingToken) return;
+      nextAudioPromise = index + 1 < chunks.length
+        ? cloudTts(chunks[index + 1]!, locale, rate)
+        : null;
       if (!audio) {
         console.info("[LingoArena audio] browser speech fallback for remaining sentence chunks; reason:", lastTtsError || "cloud TTS unavailable");
         browserSpeak(chunks.slice(index).join(" "), locale, rate, token, { onStart: onStartOnce, onEnd: cb?.onEnd });

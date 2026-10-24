@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Star, X, Volume2, Languages, PencilLine, Mic } from "lucide-react";
+import { Check, Star, X, Sparkles, Volume2, Languages, PencilLine, Mic } from "lucide-react";
 import { NODES_PER_UNIT, TARGETS, UNITS, nodeConcepts, unitConcepts, CONCEPTS, type Concept, type NativeLang, type TargetLang } from "@/lib/lingo/content";
 import { compareSpeech, shuffle } from "@/lib/lingo/engine";
 import { makeT, unitTitle, langName } from "@/lib/lingo/i18n";
@@ -15,14 +15,8 @@ type Exercise = { id: string; kind: ExerciseKind; concept: Concept; prompt: stri
 
 /** Ten varied, offline-capable exercises per lesson; no API call is needed for core practice. */
 export function buildLessonExercises(unit: number, node: number, native: NativeLang, target: TargetLang): Exercise[] {
-  const actualUnit = unit;
-  const authoredConcepts = nodeConcepts(actualUnit, node);
-  // The legacy phrase bank covers units 1–5. Later units keep a stable lesson ID
-  // and use a varied offline fallback until AI-generated lesson packs are available.
-  const concepts = authoredConcepts.length ? authoredConcepts : CONCEPTS.slice(
-    (unit * 7 + node * 3) % Math.max(1, CONCEPTS.length - 2),
-    (unit * 7 + node * 3) % Math.max(1, CONCEPTS.length - 2) + 3,
-  );
+  const actualUnit = unit % UNITS.length;
+  const concepts = nodeConcepts(actualUnit, node % NODES_PER_UNIT);
   const pool = unitConcepts(actualUnit).length ? unitConcepts(actualUnit) : CONCEPTS;
   const kinds: ExerciseKind[] = ["choose", "listen", "translate", "fill", "choose", "speak", "listen", "translate", "fill", "choose"];
   return kinds.map((kind, i) => {
@@ -37,25 +31,25 @@ export function buildLessonExercises(unit: number, node: number, native: NativeL
       : `Speaking challenge ${i + 1}: Say this phrase in ${langName(target, "en")}.`;
     const answer = kind === "fill" ? (targetText.match(/^[\p{L}’'-]+/u)?.[0] || targetText) : direction === "target" ? targetText : source;
     const optionPool = shuffle(pool.filter((candidate) => candidate.id !== concept.id));
-    const options = shuffle([concept, ...optionPool.slice(0, 4)]);
+    const options = shuffle([concept, ...optionPool.slice(0, 3)]);
     return { id: `u${unit}-n${node}-q${i + 1}`, kind, concept, prompt, answer, options, direction };
   });
 }
 
 export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: number) => void; fail: () => void }) {
   const { s, done } = lingo;
-  const visibleUnitCount = Math.min(UNITS.length, Math.max(UNITS.length, UNITS.length + levelFromXp(s.xp) - 1));
+  const visibleUnitCount = UNITS.length + Math.max(1, levelFromXp(s.xp) - 1);
   const t = makeT(s.native);
   const [lesson, setLesson] = useState<number | null>(null);
   if (lesson !== null) return <Lesson lingo={lingo} node={lesson} reward={reward} onExit={() => setLesson(null)} />;
   return <div className="space-y-10 pb-10">
     {Array.from({ length: visibleUnitCount }, (_, ui) => {
-      const unit = UNITS[ui]!; const generated = ui >= 5;
+      const unit = UNITS[ui % UNITS.length]!; const generated = ui >= UNITS.length;
       return <section key={ui}>
         <div className={cn("mb-6 rounded-3xl p-5", UNIT_STYLE[ui % UNIT_STYLE.length])}>
-          <p className="text-xs font-extrabold uppercase opacity-80">{t("unit")} {ui + 1} · {unit.cefr}</p>
-          <h2 className="text-2xl font-extrabold">{unit.emoji} {unitTitle(ui, s.native)}</h2>
-          <p className="mt-1 text-sm font-bold opacity-80">10 practice questions per lesson · 6 lessons per unit</p>
+          <p className="text-xs font-extrabold uppercase opacity-80">{t("unit")} {ui + 1}{generated ? " · MIXED PRACTICE" : ""}</p>
+          <h2 className="text-2xl font-extrabold">{generated ? <><Sparkles className="mr-1 inline h-5 w-5" />{s.native === "es" ? "Práctica infinita" : "Endless practice"}</> : <>{unit.emoji} {unitTitle(ui, s.native)}</>}</h2>
+          <p className="mt-1 text-sm font-bold opacity-80">10 varied exercises per lesson · no hearts · no locks</p>
         </div>
         <div className="flex flex-col items-center gap-5">
           {Array.from({ length: NODES_PER_UNIT }).map((_, ni) => {

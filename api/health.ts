@@ -32,7 +32,7 @@ async function checkOpenAI(): Promise<ProviderStatus> {
   } catch (e) { return e instanceof Error && /timeout|abort/i.test(`${e.name} ${e.message}`) ? "timeout" : "provider_error"; }
 }
 async function checkGemini(): Promise<ProviderStatus> {
-  const key = process.env.GEMINI_API_KEY;
+  const key = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
   if (!key) return "missing_key";
   try {
     const model = process.env.GEMINI_CHAT_MODEL || "gemini-3.8-flash";
@@ -57,7 +57,8 @@ export default async function handler(req: { method?: string; headers?: Record<s
     providers: { openai, gemini },
     models: { openaiChat: process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini", openaiTts: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts", openaiStt: process.env.OPENAI_STT_MODEL || "whisper-1", geminiChat: process.env.GEMINI_CHAT_MODEL || "gemini-3.8-flash", geminiTts: process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts", geminiStt: process.env.GEMINI_STT_MODEL || "gemini-3.8-flash" },
     runtime: { node: process.version, region: process.env.VERCEL_REGION || "unknown", deployment: process.env.VERCEL_ENV || "unknown" },
-    configured: { openai: Boolean(process.env.OPENAI_API_KEY), gemini: Boolean(process.env.GEMINI_API_KEY) },
+    configured: { openai: Boolean(process.env.OPENAI_API_KEY), gemini: Boolean(process.env.GEMINI_API_KEY || process.env.GEMINI_KEY) },
+    keySource: { gemini: process.env.GEMINI_API_KEY ? "GEMINI_API_KEY" : process.env.GEMINI_KEY ? "GEMINI_KEY" : "missing" },
     checkedAt: new Date().toISOString(), sessionTokenBudget: Number(process.env.SESSION_TOKEN_BUDGET || 60000),
   });
   } catch (error) {

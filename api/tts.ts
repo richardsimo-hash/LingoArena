@@ -51,7 +51,7 @@ function safeError(error: unknown): string {
 }
 
 async function geminiTts(text: string, locale: string): Promise<{ bytes: Uint8Array; mimeType: string }> {
-  const key = process.env.GEMINI_API_KEY;
+  const key = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
   if (!key) throw new Error("gemini_missing_key");
 
   // Gemini 3.8 TTS uses the Interactions API, not the generateContent audio schema.
@@ -139,7 +139,8 @@ export default async function handler(req: RequestLike, res: ResponseLike): Prom
     }
 
     const errors: string[] = [];
-    if (process.env.GEMINI_API_KEY) {
+    const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
+  if (geminiApiKey) {
       try {
         const result = await geminiTts(text, locale);
         sendAudio(res, result.bytes, result.mimeType.toLowerCase().includes("mpeg") ? "audio/mpeg" : "audio/wav");

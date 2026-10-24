@@ -23,11 +23,14 @@ export async function chatReply(data: ChatInput): Promise<Reply> {
       setAudioApiStatus(`chat:${res.status}:non-json`);
       return { ok: false, error, latencyMs: Math.round(performance.now() - startedAt) };
     }
-    const json = await res.json() as { text?: string; provider?: string; error?: string; status?: unknown; failover?: Record<string, string> };
+    const json = await res.json() as { text?: string; provider?: string; error?: string; status?: unknown; details?: Record<string, string>; failover?: Record<string, string> };
     const latencyMs = Math.round(performance.now() - startedAt);
     if (!res.ok) {
       const reason = typeof json.status === "object" ? JSON.stringify(json.status) : String(json.status || "");
-      const error = [json.error || `http_${res.status}`, reason].filter(Boolean).join(": ");
+      const providerDetails = json.details && Object.keys(json.details).length
+        ? ` [${Object.entries(json.details).map(([provider, detail]) => `${provider}=${detail}`).join("; ")}]`
+        : "";
+      const error = [json.error || `http_${res.status}`, reason].filter(Boolean).join(": ") + providerDetails;
       setAudioApiStatus(`chat:${res.status}:${error}`);
       return { ok: false, error, latencyMs };
     }

@@ -1,22 +1,4 @@
-// Rate limiter inlined on purpose: extensionless relative imports crash Vercel ESM functions (ERR_MODULE_NOT_FOUND).
-type RequestLike = { headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } };
-const windows = new Map<string, { count: number; resetAt: number }>();
-
-/** Best-effort per-instance limiter for serverless routes; use an external store for distributed enforcement. */
-function checkRateLimit(req: RequestLike, scope: string, limit: number, windowMs = 60_000): { allowed: boolean; retryAfterSeconds: number } {
-  const forwarded = req.headers?.["x-forwarded-for"];
-  const ip = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim() || req.socket?.remoteAddress || "unknown";
-  const key = `${scope}:${ip}`; const now = Date.now();
-  for (const [bucket, value] of windows) if (value.resetAt <= now) windows.delete(bucket);
-  const current = windows.get(key);
-  if (!current || current.resetAt <= now) {
-    windows.set(key, { count: 1, resetAt: now + windowMs });
-    return { allowed: true, retryAfterSeconds: 0 };
-  }
-  if (current.count >= limit) return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt - now) / 1000)) };
-  current.count++;
-  return { allowed: true, retryAfterSeconds: 0 };
-}
+import { checkRateLimit } from "../server/rateLimit";
 export const config = { maxDuration: 30 };
 type Body = { audioBase64?: string; mimeType?: string; locale?: string };
 export default async function handler(req: { method?: string; body?: Body; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader?: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void } }) {
@@ -28,9 +10,10 @@ export default async function handler(req: { method?: string; body?: Body; heade
   if (!audioBase64 || typeof audioBase64 !== "string") return res.status(400).json({ ok: false, error: "audio_required", provider: "none", status: 400 });
   const bytes = Buffer.from(audioBase64, "base64");
   if (!bytes.length || bytes.length > 3 * 1024 * 1024) return res.status(413).json({ ok: false, error: "audio_size_invalid", provider: "none", status: 413 });
-  if (process.env.GEMINI_API_KEY) {
+  const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
+  if (geminiApiKey) {
     try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_STT_MODEL || "gemini-3.8-flash")}:generateContent?key=${encodeURIComponent(process.env.GEMINI_API_KEY)}`, {
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_STT_MODEL || "gemini-3.8-flash")}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
         method: "POST", signal: AbortSignal.timeout(20000), headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: `Transcribe exactly what is spoken in language/locale ${locale}. Return only the transcription, with no commentary.` }, { inlineData: { mimeType, data: audioBase64 } }] }] }),
       });
@@ -55,7 +38,7 @@ export default async function handler(req: { method?: string; body?: Body; heade
       return res.status(200).json({ text: data.text.trim(), provider: "openai" });
     } catch (error) { console.warn("[LingoArena API] OpenAI STT failed; trying Gemini", error); }
   }
-  const missing = !process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY;
+  const missing = !process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY && !process.env.GEMINI_KEY;
   return res.status(missing ? 503 : 502).json({ ok: false, error: missing ? "missing_key" : "stt_providers_unavailable", provider: "gemini_then_openai", status: missing ? 503 : 502, fallback: "browser_speech_recognition" });
   } catch (error) {
     console.error("[LingoArena API] Unhandled STT handler error", error);
