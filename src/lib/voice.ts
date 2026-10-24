@@ -466,14 +466,18 @@ export function speak(text: string, localeOrOptions: string | SpeakOptions, rate
     for (let index = 0; index < chunks.length; index++) {
       const audio = await nextAudioPromise;
       if (token !== speakingToken) return;
-      nextAudioPromise = index + 1 < chunks.length
-        ? cloudTts(chunks[index + 1]!, locale, rate)
-        : null;
       if (!audio) {
+        // Once Gemini is rate-limited/unavailable, do not issue one more cloud request
+        // for every remaining sentence. Switch the remainder of this utterance to browser TTS.
         console.info("[LingoArena audio] browser speech fallback for remaining sentence chunks; reason:", lastTtsError || "cloud TTS unavailable");
         browserSpeak(chunks.slice(index).join(" "), locale, rate, token, { onStart: onStartOnce, onEnd: cb?.onEnd });
         return;
       }
+      // Only prefetch after the current cloud request succeeds. This prevents a failed
+      // Gemini request (especially HTTP 429) from triggering another quota-consuming call.
+      nextAudioPromise = index + 1 < chunks.length
+        ? cloudTts(chunks[index + 1]!, locale, rate)
+        : null;
       const played = await playWithPersistentAudio(audio, token, { onStart: onStartOnce });
       if (token !== speakingToken) return;
       if (!played) {

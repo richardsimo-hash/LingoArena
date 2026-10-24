@@ -9,7 +9,7 @@
 ## Confirmed code risks addressed
 
 1. `api/tts.ts`, `api/chat.ts`, `api/stt.ts`, `api/health.ts`: handlers previously lacked a whole-handler `try/catch`. Unexpected errors after invocation could escape the handler. Each handler now logs the real error with `console.error` and returns structured JSON with a 500 status.
-2. `api/tts.ts`: audio bytes were sent as a `Uint8Array`. They are now wrapped in `Buffer.from(...)` and returned with `Content-Type`, `Content-Length`, `Accept-Ranges`, and `Cache-Control`. TTS input is limited to 600 characters per request; OpenAI is attempted first, then Gemini, and the API returns JSON if neither provider succeeds.
+2. `api/tts.ts`: audio bytes were sent as a `Uint8Array`. They are now wrapped in `Buffer.from(...)` and returned with `Content-Type`, `Content-Length`, `Accept-Ranges`, and `Cache-Control`. TTS input is limited to 600 characters per request; Gemini is the only cloud provider. HTTP 429 is surfaced as a rate-limit/quota response and the client falls back to browser speech synthesis.
 3. `api/chat.ts`, `api/stt.ts`, `api/tts.ts`, `api/health.ts`: explicit 30-second Vercel function duration configuration, structured method/rate-limit/provider errors, and outer exception logging were added. Secrets continue to be read from `process.env` inside handler/provider calls.
 4. `vercel.json`: the SPA rewrite already excludes `/api/`; no rewrite change was needed. The `api/` directory is at repository root.
 5. `index.html`: viewport metadata already uses `width=device-width, initial-scale=1, viewport-fit=cover`; no change was needed.

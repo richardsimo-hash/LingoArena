@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 
-export const config = { maxDuration: 30 };
+export const config = { maxDuration: 60 };
 type Body = { text?: string; locale?: string; rate?: number };
 type RequestLike = {
   method?: string;
@@ -19,6 +19,49 @@ type ResponseLike = {
 // Keep this route self-contained so a missing/transpilation-failed shared import
 // cannot prevent Vercel from loading the TTS function.
 const rateWindows = new Map<string, { count: number; resetAt: number }>();
+// Warm Vercel instances can reuse successful clips and coalesce duplicate concurrent requests.
+// This is best-effort instance-local caching, not persistent storage.
+type TtsResult = { bytes: Uint8Array; mimeType: string };
+const audioCache = new Map<string, { result: TtsResult; expiresAt: number }>();
+const inFlight = new Map<string, Promise<TtsResult>>();
+const AUDIO_CACHE_TTL_MS = 30 * 60_000;
+const AUDIO_CACHE_MAX_ENTRIES = 80;
+function cacheKeyFor(text: string, locale: string): string {
+  return `${process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts"}|${process.env.GEMINI_TTS_VOICE || "Kore"}|${locale}|${text}`;
+}
+async function cachedGeminiTts(text: string, locale: string): Promise<TtsResult> {
+  const key = cacheKeyFor(text, locale);
+  const now = Date.now();
+  for (const [cacheKey, value] of audioCache) if (value.expiresAt <= now) audioCache.delete(cacheKey);
+  const cached = audioCache.get(key);
+  if (cached) return cached.result;
+  const pending = inFlight.get(key);
+  if (pending) return pending;
+  const request = geminiTts(text, locale);
+  inFlight.set(key, request);
+  try {
+    const result = await request;
+    if (audioCache.size >= AUDIO_CACHE_MAX_ENTRIES) {
+      const oldestKey = audioCache.keys().next().value;
+      if (oldestKey) audioCache.delete(oldestKey);
+    }
+    audioCache.set(key, { result, expiresAt: Date.now() + AUDIO_CACHE_TTL_MS });
+    return result;
+  } finally {
+    inFlight.delete(key);
+  }
+}
+function classifyTtsError(error: unknown): { status: number; code: string; retryAfterSeconds?: number } {
+  const message = error instanceof Error ? error.message : String(error);
+  const match = message.match(/gemini_tts_http_(\d{3})/i);
+  if (/timeout|timed out|abort/i.test(message)) return { status: 504, code: "gemini_tts_timeout" };
+  if (match && Number(match[1]) === 429) {
+    const quotaExhausted = /quota|daily limit|limit: 0|resource_exhausted/i.test(message);
+    return { status: 429, code: quotaExhausted ? "gemini_tts_quota_exhausted" : "gemini_tts_rate_limited", retryAfterSeconds: 60 };
+  }
+  if (match && (Number(match[1]) === 401 || Number(match[1]) === 403)) return { status: 502, code: "gemini_tts_auth_error" };
+  return { status: 502, code: "gemini_tts_unavailable" };
+}
 function allowRequest(req: RequestLike): { allowed: boolean; retryAfterSeconds: number } {
   const forwarded = req.headers?.["x-forwarded-for"];
   const ip = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim()
@@ -95,29 +138,6 @@ async function geminiTts(text: string, locale: string): Promise<{ bytes: Uint8Ar
   return { bytes, mimeType: audio.mime_type || "audio/wav" };
 }
 
-async function openAiTts(text: string, locale: string, rate: number): Promise<Uint8Array> {
-  const key = process.env.OPENAI_API_KEY;
-  if (!key) throw new Error("openai_missing_key");
-  const response = await fetch("https://api.openai.com/v1/audio/speech", {
-    method: "POST",
-    signal: AbortSignal.timeout(18_000),
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts",
-      voice: process.env.OPENAI_TTS_VOICE || "nova",
-      input: text,
-      instructions: `Speak naturally using the pronunciation and accent associated with ${locale}.`,
-      response_format: "mp3",
-      speed: Math.min(1.2, Math.max(0.75, rate || 1)),
-    }),
-  });
-  if (!response.ok) {
-    const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 400);
-    throw new Error(`openai_tts_http_${response.status}${detail ? `: ${detail}` : ""}`);
-  }
-  return new Uint8Array(await response.arrayBuffer());
-}
-
 export default async function handler(req: RequestLike, res: ResponseLike): Promise<void> {
   try {
     if (req.method !== "POST") {
@@ -132,49 +152,34 @@ export default async function handler(req: RequestLike, res: ResponseLike): Prom
     }
     const text = String(req.body?.text || "").trim().slice(0, 600);
     const locale = String(req.body?.locale || "en-US").slice(0, 20);
-    const speechRate = Number(req.body?.rate) || 1;
     if (!text) {
       res.status(400).json({ ok: false, error: "text_required", provider: "none" });
       return;
     }
 
-    const errors: string[] = [];
     const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
-  if (geminiApiKey) {
-      try {
-        const result = await geminiTts(text, locale);
-        sendAudio(res, result.bytes, result.mimeType.toLowerCase().includes("mpeg") ? "audio/mpeg" : "audio/wav");
-        return;
-      } catch (error) {
-        const detail = safeError(error);
-        errors.push(detail);
-        console.error("[LingoArena TTS] Gemini request failed", detail);
-      }
-    } else {
-      errors.push("gemini_missing_key");
+    if (!geminiApiKey) {
+      res.status(503).json({ ok: false, error: "gemini_missing_key", provider: "gemini", fallback: "browser_speech_synthesis" });
+      return;
     }
-
-    if (process.env.OPENAI_API_KEY) {
-      try {
-        const bytes = await openAiTts(text, locale, speechRate);
-        sendAudio(res, bytes, "audio/mpeg");
-        return;
-      } catch (error) {
-        const detail = safeError(error);
-        errors.push(detail);
-        console.error("[LingoArena TTS] OpenAI fallback failed", detail);
-      }
-    } else {
-      errors.push("openai_missing_key");
+    try {
+      const result = await cachedGeminiTts(text, locale);
+      sendAudio(res, result.bytes, result.mimeType.toLowerCase().includes("mpeg") ? "audio/mpeg" : "audio/wav");
+      return;
+    } catch (error) {
+      const detail = safeError(error);
+      const classified = classifyTtsError(error);
+      console.error("[LingoArena TTS] Gemini request failed", { code: classified.code, detail });
+      if (classified.retryAfterSeconds) res.setHeader("Retry-After", String(classified.retryAfterSeconds));
+      res.status(classified.status).json({
+        ok: false,
+        error: classified.code,
+        provider: "gemini",
+        details: [detail],
+        retryAfterSeconds: classified.retryAfterSeconds,
+        fallback: "browser_speech_synthesis",
+      });
     }
-
-    res.status(502).json({
-      ok: false,
-      error: "tts_providers_unavailable",
-      provider: "gemini_then_openai",
-      details: errors,
-      fallback: "browser_speech_synthesis",
-    });
   } catch (error) {
     const detail = safeError(error);
     console.error("[LingoArena TTS] Unhandled handler exception", detail, error);

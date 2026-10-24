@@ -15,8 +15,7 @@ npm run dev
 
 In Vercel → Project → Settings → Environment Variables, configure server-side secrets:
 
-- `OPENAI_API_KEY` — enables OpenAI chat, TTS, and transcription.
-- `GEMINI_API_KEY` — fallback for chat, TTS, and transcription.
+- `GEMINI_API_KEY` — Gemini chat, TTS, and transcription. `GEMINI_KEY` is also accepted for compatibility. No OpenAI key is used or required.
 - `SESSION_TOKEN_BUDGET` — server-side estimated session input budget; default `60000`.
 - `SESSION_TOKEN_BUDGET` — informational estimated token budget displayed by diagnostics; it does not block requests.
 
@@ -38,7 +37,7 @@ The audio manager reuses one persistent `<audio playsinline>` element for cloud 
 
 `GET /api/health` returns provider statuses (`ok`, `missing_key`, `unauthorized`, `quota_exceeded`, `rate_limited`, `timeout`, or `provider_error`) without returning API keys. It makes a tiny test generation call per configured provider, so refresh it only when diagnosing.
 
-Chat uses per-request failover: OpenAI → Gemini → local phrasebook. A failed provider is retried on the next request; there is no permanent per-session disable after one failure. The API retries a transient 429/5xx/timeout once. Local fallback is intended to remain useful without credentials, but it is a compact phrasebook and not equivalent to a live model. API routes include best-effort in-memory per-instance rate limiting; use a shared store if you need strict distributed limits across serverless instances.
+Chat uses Gemini only and falls back to the local phrasebook if Gemini is unavailable. TTS uses Gemini only and falls back to browser speech synthesis on failure. HTTP 429 is surfaced as a rate-limit/quota response; it is not retried by the TTS route. Successful generated clips are cached in memory per warm Vercel instance, and duplicate concurrent requests for the same clip are coalesced. This cache is best-effort and not persistent. Local fallback is useful without credentials but is not equivalent to a live model. API routes include best-effort in-memory per-instance rate limiting.
 
 ## Known limitations
 
@@ -54,11 +53,11 @@ See `ROOT_CAUSE_REPORT.md` for item-by-item findings against the Round 2 source.
 ## iPhone voice diagnostics (round 4)
 After deploying, open `https://YOUR-DOMAIN/ios-audio-test` on the iPhone and tap each test separately (A–F). Use **Copy report** to capture the exact results. Also open `https://YOUR-DOMAIN/?debug=1` to see the shared audio overlay. These tests are diagnostic only; actual iPhone results must be collected on the device.
 
-This patch does not add dependencies or change environment-variable names. Keep `OPENAI_API_KEY` and/or `GEMINI_API_KEY` configured in the Vercel Production environment for cloud TTS/STT. After changing files, push the complete project root and wait for a successful Vercel build before testing the deployed routes.
+No OpenAI environment variable is required. Configure `GEMINI_API_KEY` or `GEMINI_KEY` in the Vercel Production environment for cloud AI. After changing files, push the complete project root and wait for a successful Vercel build before testing the deployed routes.
 
 ## API 500 and responsive-layout verification (this patch)
 
-1. In Vercel → Project → Settings → Environment Variables, set `OPENAI_API_KEY` and/or `GEMINI_API_KEY` for **Production**. Set optional model overrides only if you intend to override `.env.example`. Do not add `VITE_` to secret names.
+1. In Vercel → Project → Settings → Environment Variables, set `GEMINI_API_KEY` (or `GEMINI_KEY`) for **Production**. Set optional model overrides only if you intend to override `.env.example`. Do not add `VITE_` to secret names.
 2. Push the complete project root and wait for the new deployment to finish successfully. Confirm the deployment commit matches the commit you pushed.
 3. Open `https://YOUR-DOMAIN/api/health` directly. It should return JSON with `ok`, `providers`, `models`, `runtime`, and `configured`. If it returns `FUNCTION_INVOCATION_FAILED`, open Vercel → Project → Logs / Runtime Logs and copy the exception plus stack trace for the failing function. The generic HTTP 500 page alone cannot establish the root cause.
 4. Open `https://YOUR-DOMAIN/debug` and run Test chat, Test cloud voice, and provider health. The client falls back to browser speech when `/api/tts` returns non-2xx or non-audio content.

@@ -45,9 +45,9 @@ A Chloe avatar screen shows listening/thinking/speaking states. The user can ena
 
 ## Server-side API routes
 
-- `POST /api/chat`: OpenAI → Gemini fallback; client-side local phrasebook if both providers fail.
-- `POST /api/tts`: OpenAI TTS → Gemini audio generation → browser speech synthesis.
-- `POST /api/stt`: OpenAI transcription → Gemini transcription. Audio is sent as base64 JSON to avoid multipart parsing assumptions in the serverless handler.
+- `POST /api/chat`: Gemini only; client-side local phrasebook if Gemini fails.
+- `POST /api/tts`: Gemini audio generation; browser speech synthesis fallback when Gemini fails or is rate-limited.
+- `POST /api/stt`: Gemini transcription only. Audio is sent as base64 JSON to avoid multipart parsing assumptions in the serverless handler.
 
 Provider keys are read only from server environment variables and must never be included in browser code. If providers fail or credentials are absent, the app should continue in limited mode and log the fallback reason.
 
@@ -83,8 +83,9 @@ Accent preference is stored per target language in localStorage. Supported UI se
 - Add `?debug=1` panel for audio unlock, AudioContext, TTS engine/error, voice count, mic state, API status, and `/api/health` provider status.
 
 ### Provider resilience
-- Chat tries OpenAI, then Gemini, then the local phrasebook for each request. Failures do not permanently disable a provider for the rest of the session.
-- Retry transient 429, 5xx, and timeout failures once. Classify authorization, quota, rate-limit, timeout, and provider failures for logs.
+- Chat uses Gemini only, then the local phrasebook if Gemini fails.
+- TTS uses Gemini only and falls back to browser speech synthesis on provider failure. A Gemini 429 is returned as a rate-limit response, not disguised as a generic 502; the client avoids repeated cloud requests for the remaining sentences in that utterance. Successful TTS clips are cached per warm server instance.
+- Classify authorization, quota, rate-limit, timeout, and provider failures for logs.
 - The old hard-coded 60-request session cutoff has been removed. Estimated token budget is configurable and defaults to 60,000 tokens.
 - `/api/health` makes small live provider checks and never returns API credentials.
 - Local fallback avoids immediate phrase repetition and uses a detected keyword in its follow-up question when possible.

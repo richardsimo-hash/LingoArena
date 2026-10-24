@@ -1,4 +1,4 @@
-export const config = { maxDuration: 30 };
+export const config = { maxDuration: 60 };
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type Body = {
   messages?: ChatMessage[]; targetName?: string; nativeName?: string; persona?: string;
@@ -70,22 +70,11 @@ async function fetchWithRetry(url: string, init: RequestInit, label: string): Pr
   }
   throw last instanceof Error ? last : new Error(`${label}_failed`);
 }
-async function openAIChat(key: string, system: string, messages: ChatMessage[]) {
-  const response = await fetchWithRetry("https://api.openai.com/v1/chat/completions", {
-    method: "POST", signal: timeoutSignal(12000),
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ model: process.env.OPENAI_CHAT_MODEL || "gpt-4o-mini", temperature: 0.7, max_tokens: 150, messages: [{ role: "system", content: system }, ...messages] }),
-  }, "openai_chat");
-  const data = await response.json() as { choices?: { message?: { content?: string | null } }[] };
-  const text = data.choices?.[0]?.message?.content?.trim();
-  if (!text) throw new Error("openai_chat_empty");
-  return text;
-}
 async function geminiChat(key: string, system: string, messages: ChatMessage[]) {
   const contents = messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
-  const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_CHAT_MODEL || "gemini-3.8-flash")}:generateContent?key=${encodeURIComponent(key)}`, {
-    method: "POST", signal: timeoutSignal(12000), headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: { temperature: 0.7, maxOutputTokens: 150 } }),
+  const response = await fetchWithRetry(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash-lite")}:generateContent?key=${encodeURIComponent(key)}`, {
+    method: "POST", signal: timeoutSignal(25000), headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: { maxOutputTokens: 180, responseMimeType: "application/json" } }),
   }, "gemini_chat");
   const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
   const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim();
@@ -121,23 +110,19 @@ export default async function handler(req: { method?: string; body?: Body; heade
   const cacheKey = JSON.stringify({ target, native, cefr, accent, persona, summary, history });
   const cached = requestCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return res.status(200).json({ text: cached.text, provider: cached.provider, cached: true, estimatedSessionTokens, budget: budget() });
-  const errors: Record<string, string> = {};
   const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
-  if (geminiApiKey) {
-    try {
-      const text = await geminiChat(geminiApiKey, system, history);
-      requestCache.set(cacheKey, { text, provider: "gemini", expiresAt: Date.now() + 5 * 60_000 });
-      return res.status(200).json({ text, provider: "gemini", approxInputTokens, estimatedSessionTokens, budget: budget(), failover: errors });
-    } catch (error) { errors.gemini = statusOf(error); console.warn("[LingoArena API] Gemini failed; client phrasebook fallback", errors.gemini); }
-  } else errors.gemini = "missing_key";
-  if (process.env.OPENAI_API_KEY) {
-    try {
-      const text = await openAIChat(process.env.OPENAI_API_KEY, system, history);
-      requestCache.set(cacheKey, { text, provider: "openai", expiresAt: Date.now() + 5 * 60_000 });
-      return res.status(200).json({ text, provider: "openai", approxInputTokens, estimatedSessionTokens, budget: budget() });
-    } catch (error) { errors.openai = statusOf(error); console.warn("[LingoArena API] OpenAI failed; request-level failover", errors.openai); }
-  } else errors.openai = "missing_key";
-  return res.status(503).json({ ok: false, error: "providers_unavailable", provider: "gemini_then_openai", status: 503, details: errors, fallback: "local_phrasebook" });
+  if (!geminiApiKey) {
+    return res.status(503).json({ ok: false, error: "gemini_missing_key", provider: "gemini", status: 503, fallback: "local_phrasebook" });
+  }
+  try {
+    const text = await geminiChat(geminiApiKey, system, history);
+    requestCache.set(cacheKey, { text, provider: "gemini", expiresAt: Date.now() + 5 * 60_000 });
+    return res.status(200).json({ text, provider: "gemini", approxInputTokens, estimatedSessionTokens, budget: budget() });
+  } catch (error) {
+    const detail = statusOf(error);
+    console.warn("[LingoArena API] Gemini request failed", detail);
+    return res.status(503).json({ ok: false, error: "gemini_unavailable", provider: "gemini", status: 503, details: { gemini: detail }, fallback: "local_phrasebook" });
+  }
   } catch (error) {
     console.error("[LingoArena API] Unhandled chat handler error", error);
     return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "internal_error", provider: "server", status: 500 });

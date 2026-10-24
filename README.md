@@ -10,7 +10,7 @@ cp .env.example .env.local
 npm run dev
 ```
 
-Cloud AI/voice integrations use server-side Vercel routes and optional `OPENAI_API_KEY` / `GEMINI_API_KEY` environment variables. Without credentials, lessons remain available offline, browser speech synthesis is used when possible, and Open Talk falls back to a local phrasebook.
+Cloud AI/voice integrations use server-side Vercel routes and Gemini only (`GEMINI_API_KEY` or `GEMINI_KEY`). OpenAI provider calls have been removed. If Gemini is unavailable or rate-limited, lessons remain available offline, browser speech synthesis is used when possible, and Open Talk falls back to a local phrasebook.
 
 ## Checks
 

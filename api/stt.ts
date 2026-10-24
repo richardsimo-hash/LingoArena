@@ -24,22 +24,8 @@ export default async function handler(req: { method?: string; body?: Body; heade
       return res.status(200).json({ text, provider: "gemini" });
     } catch (error) { console.warn("[LingoArena API] Gemini STT failed", error); }
   }
-  if (process.env.OPENAI_API_KEY) {
-    try {
-      const form = new FormData();
-      const ext = mimeType.includes("mp4") ? "mp4" : mimeType.includes("ogg") ? "ogg" : "webm";
-      form.append("file", new Blob([new Uint8Array(bytes).buffer as ArrayBuffer], { type: mimeType }), `speech.${ext}`);
-      form.append("model", process.env.OPENAI_STT_MODEL || "whisper-1");
-      form.append("language", locale.slice(0, 2));
-      const response = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", signal: AbortSignal.timeout(20000), headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}` }, body: form });
-      if (!response.ok) throw new Error(`openai_stt_http_${response.status}`);
-      const data = await response.json() as { text?: string };
-      if (!data.text?.trim()) throw new Error("openai_stt_empty");
-      return res.status(200).json({ text: data.text.trim(), provider: "openai" });
-    } catch (error) { console.warn("[LingoArena API] OpenAI STT failed; trying Gemini", error); }
-  }
-  const missing = !process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY && !process.env.GEMINI_KEY;
-  return res.status(missing ? 503 : 502).json({ ok: false, error: missing ? "missing_key" : "stt_providers_unavailable", provider: "gemini_then_openai", status: missing ? 503 : 502, fallback: "browser_speech_recognition" });
+  const missing = !process.env.GEMINI_API_KEY && !process.env.GEMINI_KEY;
+  return res.status(missing ? 503 : 502).json({ ok: false, error: missing ? "gemini_missing_key" : "gemini_stt_unavailable", provider: "gemini", status: missing ? 503 : 502, fallback: "browser_speech_recognition" });
   } catch (error) {
     console.error("[LingoArena API] Unhandled STT handler error", error);
     return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "internal_error", provider: "server", status: 500 });
