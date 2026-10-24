@@ -1,3 +1,5 @@
+import { CURRICULUM_UNITS, CURRICULUM_LESSONS_PER_UNIT } from "./curriculum";
+
 export type TargetLang = "es" | "fr" | "en" | "de" | "it" | "ja" | "pt";
 export type NativeLang = "en" | "es" | "fr" | "de" | "it" | "pt";
 export type PersonaId = "barista" | "gatekeeper" | "guide";
@@ -22,15 +24,11 @@ export const PERSONAS: { id: PersonaId; name: string; emoji: string; blurb: stri
   { id: "guide", name: "The Energetic Tour Guide", emoji: "🗺️", blurb: "Rapid-fire travel & directions.", lines: [] },
 ];
 
-/** Unit titles are translated in i18n.ts (unitTitle). `title` is the English fallback. */
-export const UNITS = [
-  { title: "Greetings & Politeness", emoji: "👋" },
-  { title: "Cafés & Food", emoji: "🥐" },
-  { title: "Directions & Transport", emoji: "🧭" },
-  { title: "Shopping & Hotels", emoji: "🛍️" },
-  { title: "Health & Emergencies", emoji: "🚑" },
-];
-export const NODES_PER_UNIT = 3;
+/** 100 curriculum units; phrase banks are currently authored for the first five units. */
+export const UNITS = CURRICULUM_UNITS.map(({ title, emoji, cefr, objective, id }) => ({
+  id, title, emoji, cefr, objective,
+}));
+export const NODES_PER_UNIT = CURRICULUM_LESSONS_PER_UNIT;
 export const CONCEPTS_PER_NODE = 3;
 
 // Column order of every row below.

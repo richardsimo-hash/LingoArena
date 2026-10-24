@@ -1,3 +1,4 @@
+import { checkRateLimit } from "../server/rateLimit";
 export const config = { maxDuration: 30 };
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type Body = {
@@ -10,25 +11,6 @@ const PERSONA_STYLE: Record<string, string> = {
   guide: "an enthusiastic local tour guide who loves travel and stories",
 };
 const requestCache = new Map<string, { text: string; provider: string; expiresAt: number }>();
-
-// Local per-instance limiter: avoid a shared module import during Vercel function startup.
-const rateWindows = new Map<string, { count: number; resetAt: number }>();
-function checkChatRateLimit(req: { headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, limit: number) {
-  const forwarded = req.headers?.["x-forwarded-for"];
-  const ip = (Array.isArray(forwarded) ? forwarded[0] : forwarded)?.split(",")[0]?.trim()
-    || req.socket?.remoteAddress || "unknown";
-  const key = `chat:${ip}`;
-  const now = Date.now();
-  for (const [bucket, value] of rateWindows) if (value.resetAt <= now) rateWindows.delete(bucket);
-  const current = rateWindows.get(key);
-  if (!current || current.resetAt <= now) {
-    rateWindows.set(key, { count: 1, resetAt: now + 60_000 });
-    return { allowed: true, retryAfterSeconds: 0 };
-  }
-  if (current.count >= limit) return { allowed: false, retryAfterSeconds: Math.max(1, Math.ceil((current.resetAt - now) / 1000)) };
-  current.count++;
-  return { allowed: true, retryAfterSeconds: 0 };
-}
 const budget = () => Math.max(1000, Number(process.env.SESSION_TOKEN_BUDGET || 60000));
 const timeoutSignal = (ms: number) => AbortSignal.timeout(ms);
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -91,7 +73,7 @@ async function geminiChat(key: string, system: string, messages: ChatMessage[]) 
 export default async function handler(req: { method?: string; body?: Body; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader?: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void } }) {
   try {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "method_not_allowed", provider: "none", status: 405 });
-  const rate = checkChatRateLimit(req, 30);
+  const rate = checkRateLimit(req, "chat", 30);
   if (!rate.allowed) { res.setHeader?.("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ ok: false, error: "rate_limited", provider: "none", status: 429, retryAfterSeconds: rate.retryAfterSeconds }); }
   const data = req.body ?? {};
   const target = String(data.targetName || "the target language").slice(0, 80);
