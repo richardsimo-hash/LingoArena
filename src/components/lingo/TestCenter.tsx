@@ -12,7 +12,15 @@ import { flushUploads, logDiagnostic, sessionId } from "@/lib/diagnostics";
 type Status = "idle" | "running" | "pass" | "warn" | "fail";
 type Result = { status: Status; detail: string; ms?: number };
 const LOCALE = "en-US";
-const errorText = (error: unknown) => error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+const errorText = (error: unknown) => {
+  const name = error instanceof Error ? error.name : "";
+  const base = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  // Turn the browser's capture errors into steps the user can take.
+  if (name === "NotAllowedError") return `${base}. Microphone access is blocked: click the icon left of the address bar → Site settings → Microphone → Allow, then reload. On macOS also check System Settings → Privacy & Security → Microphone → enable Chrome. (Embedded previews such as the Claude Browser pane always block the mic; use Chrome directly.)`;
+  if (name === "NotFoundError" || name === "OverconstrainedError") return `${base}. No usable microphone was found. Plug one in or choose "System default" above.`;
+  if (name === "NotReadableError") return `${base}. Another app (Zoom, Teams, FaceTime…) may be holding the microphone. Close it and try again.`;
+  return base;
+};
 
 const TESTS: { id: string; group: string; label: string; hint: string }[] = [
   { id: "env", group: "Browser", label: "Browser capabilities", hint: "APIs the app relies on" },
