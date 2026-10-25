@@ -633,7 +633,7 @@ export async function transcribeAudio(blob: Blob, locale: string): Promise<strin
 }
 
 /** Final transcript for raw 16 kHz PCM from liveCapture: on-device Whisper first, then cloud (WAV). */
-export async function transcribeRecording(pcm: Float32Array, locale: string): Promise<string> {
+export async function transcribeRecording(pcm: Float32Array, locale: string, allowCloud = true): Promise<string> {
   if (!pcm.length) throw new Error("STT_AUDIO_EMPTY");
   const localStartedAt = performance.now();
   try {
@@ -645,7 +645,8 @@ export async function transcribeRecording(pcm: Float32Array, locale: string): Pr
     return localText.trim();
   } catch (localError) {
     const localReason = localError instanceof Error ? `${localError.name}: ${localError.message}` : String(localError);
-    logDiagnostic("stt", "local_transcription_failed_cloud_fallback", "warn", { elapsedMs: Math.round(performance.now() - localStartedAt), error: localReason });
+    logDiagnostic("stt", allowCloud ? "local_transcription_failed_cloud_fallback" : "local_transcription_failed", "warn", { elapsedMs: Math.round(performance.now() - localStartedAt), error: localReason });
+    if (!allowCloud) throw localError instanceof Error ? localError : new Error(localReason);
     return cloudTranscribe(encodeWav(pcm), locale, localReason);
   }
 }

@@ -137,23 +137,29 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
           });
         }
       }
+      const stats = capture?.stats() ?? {};
       const pcm = capture?.stop() ?? new Float32Array(0);
       const heardVoice = capture?.heardVoice() ?? false;
       setListening(false); recognitionActiveRef.current = false; setAudioMicState("idle");
       if (sessionRef.current === session) sessionRef.current = null;
       if (cancelled) return;
-      logDiagnostic("mic", "listen_finished", "info", { reason, webTextLength: webText.length, whisperTextLength: whisperText.length, recordedMs: Math.round((pcm.length / 16000) * 1000), heardVoice });
+      logDiagnostic("mic", "listen_finished", "info", { reason, webTextLength: webText.length, whisperTextLength: whisperText.length, recordedMs: Math.round((pcm.length / 16000) * 1000), webSpeechUsed: Boolean(recognition), ...stats });
       if (webText.trim()) { deliver(webText.trim()); return; }
       if (reason === "mic_blocked") { setError(t("micBlocked")); return; }
-      if (!heardVoice || pcm.length < 16000 * 0.3) { setError(t("noSpeech")); return; }
+      if (pcm.length < 16000 * 0.3) { setError(t("noSpeech")); return; }
+      // A peak this low is digital silence: the browser is reading a muted or wrong input device.
+      const silentMic = typeof stats.peakRms === "number" && stats.peakRms < 0.002;
       setProcessing(true);
       try {
-        const text = await transcribeRecording(pcm, locale);
+        // On-device Whisper is free, so always try it; the cloud is only worth calling if voice was detected.
+        const text = await transcribeRecording(pcm, locale, heardVoice);
         if (!text.trim()) throw new Error("STT_EMPTY");
         deliver(text.trim());
       } catch (cause) {
-        logDiagnostic("mic", "final_transcription_failed", "error", { error: cause instanceof Error ? cause.message : String(cause) });
+        logDiagnostic("mic", "final_transcription_failed", heardVoice ? "error" : "warn", { error: cause instanceof Error ? cause.message : String(cause), heardVoice, silentMic });
         if (whisperText) deliver(whisperText);
+        else if (silentMic) setError(`Your microphone is sending silence (${String(stats.device || "unknown device")}). Pick the right input in your system sound settings or the browser's mic menu, then try again.`);
+        else if (!heardVoice) setError(t("noSpeech"));
         else setError(`I couldn't recognize that speech. Please try again or type your answer. (${cause instanceof Error ? cause.message : String(cause)})`);
       } finally {
         setProcessing(false);
@@ -205,6 +211,7 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
       capture = started;
       if (!webSpeechActive) setAudioMicState("local_whisper");
       liveTimer = window.setInterval(runLiveWhisper, 900);
+      window.setTimeout(() => { if (!ended && capture) logDiagnostic("mic", "level_check_1500ms", "info", capture.stats()); }, 1500);
       logDiagnostic("mic", "live_capture_started", "info", { locale: lang, webSpeech: webSpeechActive });
     }).catch((cause) => {
       logDiagnostic("mic", "live_capture_failed", "warn", { error: cause instanceof Error ? cause.message : String(cause) });

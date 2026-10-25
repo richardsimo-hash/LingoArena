@@ -8,6 +8,8 @@ export type LiveCapture = {
   samples: () => Float32Array;
   heardVoice: () => boolean;
   durationMs: () => number;
+  /** Level and device metadata for diagnostics (no audio content). */
+  stats: () => Record<string, string | number | boolean>;
   stop: () => Float32Array;
 };
 
@@ -42,7 +44,8 @@ export async function startLiveCapture(options: LiveCaptureOptions = {}): Promis
   let carry = 0; // fractional read position carried across buffers for resampling
   let heardVoice = false;
   let silentSince = 0;
-  let noiseFloor = 0.012;
+  let noiseFloor = 0.008;
+  let peakRms = 0, rmsSum = 0, rmsCount = 0, buffers = 0;
   const calibration: number[] = [];
   const startedAt = performance.now();
   let stopped = false;
@@ -68,9 +71,11 @@ export async function startLiveCapture(options: LiveCaptureOptions = {}): Promis
     if (out.length) { chunks.push(out); totalLength += out.length; }
 
     const rms = Math.sqrt(sumSquares / Math.max(1, out.length));
+    buffers++; rmsSum += rms; rmsCount++; if (rms > peakRms) peakRms = rms;
     const elapsed = performance.now() - startedAt;
-    if (elapsed < 500) { calibration.push(rms); noiseFloor = Math.max(0.006, calibration.reduce((a, b) => a + b, 0) / calibration.length); }
-    const threshold = Math.max(0.02, noiseFloor * 2.6 + 0.01);
+    if (elapsed < 400) { calibration.push(rms); noiseFloor = Math.max(0.003, calibration.reduce((a, b) => a + b, 0) / calibration.length); }
+    // Auto-gain and noise suppression keep speech fairly quiet, so stay sensitive.
+    const threshold = Math.max(0.01, noiseFloor * 2.2 + 0.004);
     if (rms > threshold) { heardVoice = true; silentSince = 0; }
     else if (heardVoice) {
       if (!silentSince) silentSince = performance.now();
@@ -91,8 +96,31 @@ export async function startLiveCapture(options: LiveCaptureOptions = {}): Promis
     return merged;
   };
 
+  const track = stream.getAudioTracks()[0];
+  const stats = () => {
+    const settings = (track?.getSettings?.() ?? {}) as MediaTrackSettings;
+    return {
+      device: (track?.label || "unknown").slice(0, 80),
+      trackState: track?.readyState || "none",
+      trackMuted: Boolean(track?.muted),
+      trackEnabled: Boolean(track?.enabled),
+      contextState: context.state,
+      contextRate: context.sampleRate,
+      deviceRate: settings.sampleRate ?? 0,
+      echoCancellation: Boolean(settings.echoCancellation),
+      noiseSuppression: Boolean(settings.noiseSuppression),
+      autoGainControl: Boolean(settings.autoGainControl),
+      buffers,
+      peakRms: Math.round(peakRms * 10000) / 10000,
+      avgRms: Math.round((rmsSum / Math.max(1, rmsCount)) * 10000) / 10000,
+      noiseFloor: Math.round(noiseFloor * 10000) / 10000,
+      heardVoice,
+    };
+  };
+
   return {
     samples,
+    stats,
     heardVoice: () => heardVoice,
     durationMs: () => (totalLength / TARGET_RATE) * 1000,
     stop: () => {

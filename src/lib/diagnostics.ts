@@ -24,34 +24,42 @@ export function logDiagnostic(area: string, event: string, level: DiagnosticEven
   window.dispatchEvent(new CustomEvent("lingo-diagnostic-event", { detail: entry }));
   const method = level === "error" ? console.error : level === "warn" ? console.warn : console.info;
   method(`[LingoArena diagnostic] ${area}.${event}`, entry.details || {});
-  // Send only warnings/errors to Vercel runtime logs. Never send audio or transcript text.
-  // Throttle client reports so a noisy failure cannot flood the serverless function.
-  if (level !== "info") {
-    try {
-      const now = Date.now();
-      const key = "lingoarena-diagnostic-last-upload";
-      const last = Number(sessionStorage.getItem(key) || 0);
-      if (now - last >= 1000) {
-        sessionStorage.setItem(key, String(now));
-        void fetch("/api/diagnostics", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          cache: "no-store",
-          keepalive: true,
-          body: JSON.stringify({
-            at: entry.at,
-            level: entry.level,
-            area: entry.area,
-            event: entry.event,
-            details: entry.details,
-            path: window.location.pathname,
-            userAgent: window.navigator.userAgent.slice(0, 240),
-          }),
-        }).catch(() => undefined);
-      }
-    } catch { /* diagnostics must never break app behavior */ }
-  }
+  // Send warnings/errors plus all mic/stt events to Vercel runtime logs so failures can be
+  // diagnosed remotely. Never audio or transcript text. Batched to keep function calls low.
+  if (level !== "info" || area === "mic" || area === "stt") queueUpload(entry);
 }
+
+let uploadQueue: DiagnosticEvent[] = [];
+let uploadTimer: number | null = null;
+function sessionId(): string {
+  try {
+    const key = "lingoarena-diagnostic-session";
+    let id = sessionStorage.getItem(key);
+    if (!id) { id = createDiagnosticId("sess").slice(0, 18); sessionStorage.setItem(key, id); }
+    return id;
+  } catch { return "sess-unavailable"; }
+}
+function queueUpload(entry: DiagnosticEvent) {
+  if (uploadQueue.length >= 40) return; // a runaway loop must not flood the function
+  uploadQueue.push(entry);
+  if (uploadTimer === null) uploadTimer = window.setTimeout(flushUploads, 1500);
+}
+function flushUploads() {
+  uploadTimer = null;
+  const events = uploadQueue.splice(0, 20);
+  if (!events.length) return;
+  try {
+    void fetch("/api/diagnostics", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      keepalive: true,
+      body: JSON.stringify({ session: sessionId(), path: window.location.pathname, userAgent: window.navigator.userAgent.slice(0, 240), events }),
+    }).catch(() => undefined);
+  } catch { /* diagnostics must never break app behavior */ }
+  if (uploadQueue.length) uploadTimer = window.setTimeout(flushUploads, 1500);
+}
+if (typeof window !== "undefined") window.addEventListener("pagehide", flushUploads);
 export function getDiagnosticEvents(): DiagnosticEvent[] {
   if (typeof window === "undefined") return [];
   try { return (JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]") as DiagnosticEvent[]).slice(-MAX_EVENTS); }

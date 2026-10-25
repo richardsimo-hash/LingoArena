@@ -21,7 +21,7 @@ function limit(req: RequestLike) {
   for (const [key, value] of windows) if (value.resetAt <= now) windows.delete(key);
   const current = windows.get(ip);
   if (!current || current.resetAt <= now) { windows.set(ip, { count: 1, resetAt: now + 60_000 }); return true; }
-  if (current.count >= 30) return false;
+  if (current.count >= 60) return false;
   current.count++;
   return true;
 }
@@ -35,25 +35,34 @@ export default function handler(req: RequestLike, res: ResponseLike) {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "method_not_allowed" });
   if (!limit(req)) return res.status(429).json({ ok: false, error: "rate_limited" });
   const body = req.body || {};
-  const level = body.level === "error" ? "error" : body.level === "warn" ? "warn" : null;
-  const area = cleanString(body.area, 50);
-  const event = cleanString(body.event, 80);
-  if (!level || !area || !event) return res.status(400).json({ ok: false, error: "invalid_event" });
-  const rawDetails = body.details && typeof body.details === "object" && !Array.isArray(body.details)
-    ? body.details as Record<string, unknown> : {};
-  const details: Record<string, string | number | boolean | null> = {};
-  for (const [key, value] of Object.entries(rawDetails).slice(0, 12)) {
-    if (/audio|transcript|api.?key|secret|authorization|cookie|prompt|body|token|email|name/i.test(key)) continue;
-    if (typeof value === "string") details[key.slice(0, 40)] = value.replace(/[\r\n\t]/g, " ").slice(0, 240);
-    else if (typeof value === "number" || typeof value === "boolean" || value === null) details[key.slice(0, 40)] = value;
-  }
+  const events = Array.isArray(body.events) ? (body.events as Record<string, unknown>[]).slice(0, 20) : [body];
+  const session = cleanString(body.session, 40);
   const eventId = `client-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  const record = {
-    app: "lingoarena", route: "/api/diagnostics", eventId,
-    at: cleanString(body.at, 40) || new Date().toISOString(), level, area, event,
-    path: cleanString(body.path, 100), userAgent: cleanString(body.userAgent, 240), details,
-  };
-  if (level === "error") console.error(JSON.stringify(record));
-  else console.warn(JSON.stringify(record));
+  let accepted = 0;
+  for (const item of events) {
+    if (!item || typeof item !== "object") continue;
+    const level = item.level === "error" ? "error" : item.level === "warn" ? "warn" : item.level === "info" ? "info" : null;
+    const area = cleanString(item.area, 50);
+    const event = cleanString(item.event, 80);
+    if (!level || !area || !event) continue;
+    const rawDetails = item.details && typeof item.details === "object" && !Array.isArray(item.details)
+      ? item.details as Record<string, unknown> : {};
+    const details: Record<string, string | number | boolean | null> = {};
+    for (const [key, value] of Object.entries(rawDetails).slice(0, 20)) {
+      if (/audioBase64|transcript|api.?key|secret|authorization|cookie|prompt|body|token|email/i.test(key)) continue;
+      if (typeof value === "string") details[key.slice(0, 40)] = value.replace(/[\r\n\t]/g, " ").slice(0, 240);
+      else if (typeof value === "number" || typeof value === "boolean" || value === null) details[key.slice(0, 40)] = value;
+    }
+    const record = {
+      app: "lingoarena", route: "/api/diagnostics", eventId, session,
+      at: cleanString(item.at, 40) || new Date().toISOString(), level, area, event,
+      path: cleanString(body.path ?? item.path, 100), userAgent: cleanString(body.userAgent ?? item.userAgent, 240), details,
+    };
+    if (level === "error") console.error(JSON.stringify(record));
+    else if (level === "warn") console.warn(JSON.stringify(record));
+    else console.info(JSON.stringify(record));
+    accepted++;
+  }
+  if (!accepted) return res.status(400).json({ ok: false, error: "invalid_event" });
   return res.status(202).json({ ok: true, eventId });
 }
