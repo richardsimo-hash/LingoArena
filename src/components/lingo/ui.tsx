@@ -96,7 +96,11 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
   const listen = (onDone: (text: string) => void, onInterim?: (text: string) => void, continuous = true) => {
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
     const isIOS = /iPad|iPhone|iPod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    const recognition = isIOS ? null : getRecognition();
+    // Prefer recorded audio + our Gemini STT endpoint whenever available. Native
+    // Web Speech can appear to start/stop on desktop Chrome while returning no final
+    // transcript, which leaves every activity waiting with no answer to evaluate.
+    const canRecordForCloudStt = !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
+    const recognition = canRecordForCloudStt ? null : getRecognition();
     stopSpeaking();
     setError(null);
     lastRef.current = "";
@@ -109,12 +113,14 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
         if (suppressRecognitionEndRef.current) { suppressRecognitionEndRef.current = false; delivered = true; return; }
         if (delivered) return;
         delivered = true;
-        if (lastRef.current) onDone(lastRef.current);
+        if (lastRef.current.trim()) onDone(lastRef.current.trim());
+        else setError(t("noSpeech"));
       };
       recognition.onresult = (event: any) => {
         let text = "";
         for (let i = 0; i < event.results.length; i++) text += `${event.results[i][0].transcript} `;
         lastRef.current = text.trim();
+        if (lastRef.current) setError(null);
         onInterim?.(lastRef.current);
       };
       recognition.onerror = (event: any) => {
@@ -157,7 +163,7 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
           setAudioMicState("idle");
           if (suppressNextStopRef.current) { suppressNextStopRef.current = false; return; }
           const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
-          if (!blob.size) return;
+          if (!blob.size) { setError("No audio was captured. Check microphone permission and try again."); return; }
           try {
             const transcript = await transcribeAudio(blob, locale);
             setError(null);
@@ -166,7 +172,8 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
             callbackRef.current?.onDone(transcript);
           } catch (cause) {
             console.warn("[LingoArena STT] server transcription unavailable", cause);
-            const fallback = isIOS ? getRecognition() : null;
+            // Keep browser recognition as a fallback on desktop as well as iOS.
+            const fallback = getRecognition();
             if (fallback) {
               toast.warning("Cloud transcription failed. Using browser speech recognition; playback may be affected until the mic stops.");
               try {
@@ -233,11 +240,33 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
   };
 
   const stop = () => {
-    try { recRef.current?.abort(); } catch { /* ignored */ }
-    try { if (recorderRef.current?.state === "recording") recorderRef.current.stop(); } catch { /* ignored */ }
+    // IMPORTANT: stop() finalizes recognition and emits its final result; abort() discards it.
+    // All mic-driven experiences use this shared hook, so aborting here silently lost answers
+    // in Grammar Battle, Speech Arena, Free Talk, and Learn Path.
+    if (recognitionActiveRef.current && recRef.current) {
+      try {
+        recRef.current.stop();
+        return; // onend calls finish(), which delivers the final transcript exactly once.
+      } catch (cause) {
+        console.warn("[LingoArena STT] graceful recognition stop failed", cause);
+      }
+    }
+
+    // MediaRecorder's final dataavailable event must be allowed to run before tracks are released.
+    if (recorderRef.current?.state === "recording") {
+      try {
+        recorderRef.current.stop();
+        return; // recorder.onstop uploads the completed blob and invokes onDone.
+      } catch (cause) {
+        console.warn("[LingoArena STT] recorder stop failed", cause);
+      }
+    }
+
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
-    setListening(false); setAudioMicState("idle");
+    setListening(false);
+    recognitionActiveRef.current = false;
+    setAudioMicState("idle");
   };
   return { listening, error, supported, listen, stop };
 }

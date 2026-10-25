@@ -45,3 +45,17 @@
 - Use one-shot speech recognition in Grammar Battle so final transcripts resolve after the learner pauses.
 - Automatically evaluate the final recognized transcript; retain interim text in the answer field.
 - Display a listening hint during microphone capture.
+
+
+## 2026-10-25 — Shared microphone transcription fix
+
+- Fixed the shared `useSpeech()` Stop handler: graceful `SpeechRecognition.stop()` now finalizes the transcript instead of discarding it via `abort()`.
+- Fixed MediaRecorder stop flow to allow final audio chunks to be delivered before stream cleanup and STT upload.
+- Added a visible no-speech message if recognition finishes without a transcript.
+- Applies across Grammar Battle, Speech Arena, Free Talk, and Learn Path.
+- See `VOICE_INPUT_ROOT_CAUSE_AND_FIX.md` for validation and deployment limitations.
+
+
+## 2026-10-25 — Prefer cloud STT for desktop microphone input
+- Prefer MediaRecorder uploads to Gemini STT over native Web Speech on browsers that support recording.
+- Keep native recognition as a fallback and surface empty recordings explicitly.
