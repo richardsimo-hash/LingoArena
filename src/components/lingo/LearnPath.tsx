@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Star, X, Sparkles, Volume2, Languages, PencilLine, Mic } from "lucide-react";
-import { NODES_PER_UNIT, TARGETS, UNITS, nodeConcepts, unitConcepts, CONCEPTS, type Concept, type NativeLang, type TargetLang } from "@/lib/lingo/content";
+import { NODES_PER_UNIT, CONCEPTS_PER_NODE, TARGETS, UNITS, nodeConcepts, unitConcepts, CONCEPTS, type Concept, type NativeLang, type TargetLang } from "@/lib/lingo/content";
 import { compareSpeech, shuffle } from "@/lib/lingo/engine";
 import { makeT, unitTitle, langName } from "@/lib/lingo/i18n";
 import { speak, stopSpeaking } from "@/lib/voice";
