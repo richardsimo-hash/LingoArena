@@ -5,6 +5,7 @@ import { encodeWav } from "@/lib/liveCapture";
 /** Shared mobile-safe audio/TTS manager. All playback reuses one persistent HTMLAudioElement. */
 let ctx: AudioContext | null = null;
 let player: HTMLAudioElement | null = null;
+let chimed = false; // the "sound enabled" chime plays once per page, not after every tab switch
 let audioAnalyser: AnalyserNode | null = null;
 let amplitudeFrame = 0;
 let unlocked = false;
@@ -147,18 +148,27 @@ function wavDataUri(frequency = 0, durationMs = 100): string {
 async function playLocalBeep(frequency = 660, durationMs = 180): Promise<void> {
   const audio = persistentPlayer();
   if (!audio) throw new Error("persistent_audio_element_unavailable");
-  audio.pause(); audio.muted = muted; audio.src = wavDataUri(frequency, durationMs); audio.load();
+  const beepSrc = wavDataUri(frequency, durationMs);
+  audio.pause(); audio.muted = muted; audio.src = beepSrc; audio.load();
   const playing = new Promise<void>((resolve, reject) => {
     let settled = false;
-    const cleanup = () => { audio.removeEventListener("ended", onEnd); audio.removeEventListener("error", onError); window.clearTimeout(timer); };
+    const cleanup = () => { audio.removeEventListener("ended", onEnd); audio.removeEventListener("error", onError); audio.removeEventListener("playing", onPlaying); window.clearTimeout(timer); };
     const finish = (error?: Error) => { if (settled) return; settled = true; cleanup(); error ? reject(error) : resolve(); };
+    let started = false;
+    const onPlaying = () => { started = true; };
     const onEnd = () => finish();
     const onError = () => finish(new Error(audio.error ? `MediaError ${audio.error.code}: ${audio.error.message}` : "audio_element_error"));
-    const timer = window.setTimeout(() => { if (!audio.paused) { audio.pause(); finish(); } else finish(new Error("beep_playback_timeout")); }, Math.max(1200, durationMs + 900));
+    // If the beep started and was then paused (speech or the mic took over), that is not a failure.
+    const timer = window.setTimeout(() => { if (!audio.paused) { audio.pause(); finish(); } else if (started || audio.src !== beepSrc) finish(); else finish(new Error("beep_playback_timeout")); }, Math.max(1500, durationMs + 1200));
+    audio.addEventListener("playing", onPlaying, { once: true });
     audio.addEventListener("ended", onEnd, { once: true }); audio.addEventListener("error", onError, { once: true });
   });
   try { await audio.play(); await playing; }
-  catch (error) { const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error); setTtsDebug("local_beep_failed", message, "local"); throw error; }
+  catch (error) {
+    // play() rejects with AbortError when speech or the mic pauses the beep first; that is expected.
+    if (error instanceof Error && error.name === "AbortError") return;
+    const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error); setTtsDebug("local_beep_failed", message, "local"); throw error;
+  }
 }
 
 /** Call directly from a real user gesture. The first media play is started synchronously. */
@@ -214,8 +224,11 @@ async function performUnlockAudio(): Promise<boolean> {
     logAudio("audio unlock succeeded", `context=${c?.state || "unavailable"}; audioSession=${audioSessionType()}`);
     emitAudioState();
     // Audible confirmation lets the learner know the tap actually unlocked playback.
-    try { await playLocalBeep(880, 140); }
-    catch (error) { logAudio("confirmation chime failed", error); }
+    if (!chimed) {
+      chimed = true;
+      try { await playLocalBeep(880, 140); }
+      catch (error) { logAudio("confirmation chime failed", error); }
+    }
     return true;
   } catch (error) {
     unlockError = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
@@ -290,8 +303,12 @@ export function pickVoice(locale: string, voices: SpeechSynthesisVoice[]): Speec
     let candidate = 0;
     if (actual === wanted) candidate += 8;
     else if (actual.split("-")[1] === wanted.split("-")[1]) candidate += 3;
-    if (/natural|neural|online|premium|enhanced|siri/i.test(voice.name)) candidate += 4;
-    if (/google/i.test(voice.name)) candidate += 2;
+    if (/natural|neural|premium|enhanced|siri/i.test(voice.name)) candidate += 3;
+    // Network voices (e.g. Chrome's "Google ..." and Edge "Online") can stall without firing
+    // onstart/onend, which used to surface as speechSynthesis_watchdog_timeout. Prefer on-device voices.
+    if (voice.localService) candidate += 4; else candidate -= 4;
+    // macOS ships joke voices (e.g. "Bad News", "Zarvox") that are local and en-US; never pick them.
+    if (/^(albert|bad news|bahh|bells|boing|bubbles|cellos|good news|jester|organ|superstar|trinoids|whisper|wobble|zarvox|deranged|hysterical|pipe organ)$/i.test(voice.name)) candidate -= 20;
     if (/espeak|compact/i.test(voice.name)) candidate -= 5;
     if (voice.default) candidate += 1;
     if (candidate > score) { best = voice; score = candidate; }
@@ -410,8 +427,10 @@ function browserSpeak(text: string, locale: string, rate: number, token: number,
   setTtsDebug("browser_speech_synthesis", lastTtsError, lastApiStatus);
   const synth = window.speechSynthesis;
   try {
-    // Cancel any previous queue before starting this one; explicit cancellation releases its references.
-    synth.cancel();
+    // Cancel only if something is actually queued. Chrome silently drops an utterance spoken
+    // immediately after cancel(), so when we did cancel, give the engine a moment first.
+    const hadQueue = synth.speaking || synth.pending;
+    if (hadQueue) synth.cancel();
     activeUtterances.length = 0;
     // Do not wait for voiceschanged: on iOS that leaves the user-gesture call stack.
     // getVoices() is intentionally synchronous; Safari can use its default voice if empty.
@@ -422,46 +441,66 @@ function browserSpeak(text: string, locale: string, rate: number, token: number,
     const chunks = text.match(/[^.!?。！？]+[.!?。！？]*/g)?.map((part) => part.trim()).filter(Boolean) ?? [text];
     let index = 0;
     let chunkWatchdog = 0;
-    const next = () => {
-      if (chunkWatchdog) window.clearTimeout(chunkWatchdog);
-      if (token !== speakingToken) return;
-      if (index >= chunks.length) {
-        activeSpeechResolve = null;
-        window.setTimeout(() => { if (token === speakingToken) cb?.onEnd?.(); }, 300);
-        return;
-      }
-      const sentence = chunks[index++]!;
+    const speakSentence = (sentence: string, attempt: number) => {
       const utterance = new SpeechSynthesisUtterance(sentence);
       utterance.lang = voice?.lang ?? resolveLocale(locale);
       if (voice) utterance.voice = voice;
       utterance.rate = rate;
       utterance.pitch = 1;
       utterance.volume = muted ? 0 : 1;
-      utterance.onstart = () => { if (token === speakingToken) cb?.onStart?.(); };
-      utterance.onend = () => { releaseUtterance(utterance); next(); };
+      let started = false;
+      const clear = () => { if (chunkWatchdog) window.clearTimeout(chunkWatchdog); chunkWatchdog = 0; };
+      // Two-stage watchdog: the engine must start within 3 s, then finish within a rate-aware estimate.
+      const armFinishWatchdog = () => {
+        clear();
+        chunkWatchdog = window.setTimeout(() => {
+          if (token !== speakingToken) return;
+          logAudio("speechSynthesis end event missing; continuing", sentence.slice(0, 60));
+          releaseUtterance(utterance);
+          next();
+        }, Math.min(20000, 2500 + (sentence.length * 85) / Math.max(0.5, rate)));
+      };
+      utterance.onstart = () => { started = true; armFinishWatchdog(); if (token === speakingToken) cb?.onStart?.(); };
+      utterance.onend = () => { clear(); releaseUtterance(utterance); next(); };
       utterance.onerror = (event) => {
+        clear();
         releaseUtterance(utterance);
         if (token !== speakingToken || event.error === "canceled" || event.error === "interrupted") return;
-        const message = `speechSynthesis ${event.error}`;
-        setTtsDebug("browser_speech_synthesis_failed", message, lastApiStatus);
+        setTtsDebug("browser_speech_synthesis_failed", `speechSynthesis ${event.error}`, lastApiStatus);
         next();
       };
       chunkWatchdog = window.setTimeout(() => {
-        if (token !== speakingToken) { releaseUtterance(utterance); return; }
-        const message = `speechSynthesis_watchdog_timeout:${sentence.slice(0, 60)}`;
-        setTtsDebug("browser_speech_synthesis_timeout", message, lastApiStatus);
+        if (token !== speakingToken || started) return;
         releaseUtterance(utterance);
-        try { synth.cancel(); } catch (error) { logAudio("speechSynthesis cancel after watchdog failed", error); }
-        next();
-      }, Math.min(12000, Math.max(4500, sentence.length * 120)));
+        try { synth.cancel(); } catch (error) { logAudio("speechSynthesis cancel after stall failed", error); }
+        if (attempt === 0) {
+          // Engine stalled: retry once after a short pause before reporting anything.
+          logAudio("speechSynthesis did not start; retrying", sentence.slice(0, 60));
+          window.setTimeout(() => { if (token === speakingToken) speakSentence(sentence, 1); }, 150);
+        } else {
+          setTtsDebug("browser_speech_synthesis_timeout", `speechSynthesis_watchdog_timeout:${sentence.slice(0, 60)}`, lastApiStatus);
+          next();
+        }
+      }, 3000);
       // Keep the utterance alive until onend/onerror; Safari can GC unreferenced utterances.
       retainUtterance(utterance);
       synth.speak(utterance);
       if (synth.paused) synth.resume();
     };
+    const next = () => {
+      if (chunkWatchdog) window.clearTimeout(chunkWatchdog);
+      if (token !== speakingToken) return;
+      if (index >= chunks.length) {
+        activeSpeechResolve = null;
+        window.setTimeout(() => { if (token === speakingToken) cb?.onEnd?.(); }, 150);
+        return;
+      }
+      speakSentence(chunks[index++]!, 0);
+    };
     activeSpeechResolve = () => { synth.cancel(); };
-    // Speak now, not from a later timer/effect, so Safari can honor the primed engine.
-    next();
+    // Speak now, not from a later timer/effect, so Safari can honor the primed engine;
+    // only after a cancel do we wait briefly (Chrome drops utterances queued right after cancel()).
+    if (hadQueue) window.setTimeout(next, 80); else next();
   } catch (error) {
     const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     setTtsDebug("browser_speech_synthesis_failed", message, lastApiStatus);
