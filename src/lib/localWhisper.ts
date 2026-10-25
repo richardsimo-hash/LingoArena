@@ -37,7 +37,7 @@ function getWorker(): Worker {
       const request = pending.get(message.id);
       if (!request) return;
       pending.delete(message.id);
-      if (message.type === "result") { readyModels.add(request.model); request.resolve(message.text.replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*/g, " ").replace(/\s+/g, " ").trim()); }
+      if (message.type === "result") { readyModels.add(request.model); request.resolve(cleanTranscript(message.text)); }
       else request.reject(new Error(message.message));
     }
   };
@@ -48,6 +48,13 @@ function getWorker(): Worker {
     worker?.terminate(); worker = null;
   };
   return worker;
+}
+
+// Phrases Whisper is known to invent for silence or noise; treat them as "nothing said".
+const SILENCE_HALLUCINATIONS = /^(?:you|thank you|thanks|thank you for watching|thanks for watching|bye|okay|so|um|uh)[.!?]*$/i;
+function cleanTranscript(text: string) {
+  const cleaned = text.replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*/g, " ").replace(/\s+/g, " ").trim();
+  return SILENCE_HALLUCINATIONS.test(cleaned) ? "" : cleaned;
 }
 
 let activeModel = "";

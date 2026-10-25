@@ -7,6 +7,8 @@ export type LiveCapture = {
   /** Copy of everything captured so far, 16 kHz mono. */
   samples: () => Float32Array;
   heardVoice: () => boolean;
+  /** True when the default input was a silent virtual device and a real mic was used instead. */
+  switchedFromVirtual: boolean;
   durationMs: () => number;
   /** Level and device metadata for diagnostics (no audio content). */
   stats: () => Record<string, string | number | boolean>;
@@ -33,6 +35,8 @@ export type LiveCaptureOptions = {
 
 const TARGET_RATE = 16000;
 const MIC_KEY = "lingoarena-mic-device";
+/** Virtual inputs that are silent unless their app is in a call or routing audio. */
+export const VIRTUAL_MIC_PATTERN = /virtual|teams audio|zoomaudio|zoom audio|blackhole|loopback|soundflower|krisp|vb-audio|voicemeeter|camo|obs/i;
 export function getPreferredMicId(): string | undefined {
   try { return localStorage.getItem(MIC_KEY) || undefined; } catch { return undefined; }
 }
@@ -46,9 +50,23 @@ export async function startLiveCapture(options: LiveCaptureOptions = {}): Promis
   if (!AudioContextCtor || !navigator.mediaDevices?.getUserMedia) throw new Error("LIVE_CAPTURE_UNAVAILABLE");
   const deviceId = options.deviceId ?? getPreferredMicId();
   const processing = !options.raw;
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: processing, noiseSuppression: processing, autoGainControl: processing, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) } })
+  const constraints = (id?: string): MediaStreamConstraints => ({ audio: { echoCancellation: processing, noiseSuppression: processing, autoGainControl: processing, ...(id ? { deviceId: { exact: id } } : {}) } });
+  let stream = await navigator.mediaDevices.getUserMedia(constraints(deviceId))
     // A remembered device may have been unplugged; fall back to the default input.
-    .catch((error) => deviceId ? navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: processing, noiseSuppression: processing, autoGainControl: processing } }) : Promise.reject(error));
+    .catch((error) => deviceId ? navigator.mediaDevices.getUserMedia(constraints()) : Promise.reject(error));
+  // If the system default is a virtual device (e.g. "Microsoft Teams Audio Device"), it delivers
+  // silence outside calls. Unless the user explicitly picked it, switch to a real microphone.
+  let switchedFrom = "";
+  const firstLabel = stream.getAudioTracks()[0]?.label || "";
+  if (!options.deviceId && !getPreferredMicId() && VIRTUAL_MIC_PATTERN.test(firstLabel)) {
+    const inputs = (await navigator.mediaDevices.enumerateDevices().catch(() => [] as MediaDeviceInfo[]))
+      .filter((d) => d.kind === "audioinput" && d.deviceId && d.deviceId !== "default" && d.deviceId !== "communications" && !VIRTUAL_MIC_PATTERN.test(d.label));
+    const real = inputs.find((d) => /built-in|macbook|internal/i.test(d.label)) ?? inputs[0];
+    if (real) {
+      const replacement = await navigator.mediaDevices.getUserMedia(constraints(real.deviceId)).catch(() => null);
+      if (replacement) { stream.getTracks().forEach((track) => track.stop()); stream = replacement; switchedFrom = firstLabel; }
+    }
+  }
   const context = new AudioContextCtor();
   if (context.state === "suspended") await context.resume().catch(() => undefined);
   const source = context.createMediaStreamSource(stream);
@@ -119,6 +137,7 @@ export async function startLiveCapture(options: LiveCaptureOptions = {}): Promis
     const settings = (track?.getSettings?.() ?? {}) as MediaTrackSettings;
     return {
       device: (track?.label || "unknown").slice(0, 80),
+      switchedFromVirtual: switchedFrom.slice(0, 80),
       trackState: track?.readyState || "none",
       trackMuted: Boolean(track?.muted),
       trackEnabled: Boolean(track?.enabled),
@@ -140,6 +159,7 @@ export async function startLiveCapture(options: LiveCaptureOptions = {}): Promis
     samples,
     stats,
     heardVoice: () => heardVoice,
+    switchedFromVirtual: Boolean(switchedFrom),
     durationMs: () => (totalLength / TARGET_RATE) * 1000,
     stop: () => {
       if (!stopped) {

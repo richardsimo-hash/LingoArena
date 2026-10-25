@@ -51,6 +51,7 @@ export function TestCenter() {
   const [modelProgress, setModelProgress] = useState("");
   const [copied, setCopied] = useState(false);
   const recordingRef = useRef<Float32Array | null>(null);
+  const recordingHadVoiceRef = useRef(false);
   const session = sessionId();
 
   const refreshDevices = async () => {
@@ -98,6 +99,7 @@ export function TestCenter() {
     setLevel(0);
     void refreshDevices(); // labels become available after permission is granted
     recordingRef.current = pcm;
+    recordingHadVoiceRef.current = Boolean(stats.heardVoice);
     const url = URL.createObjectURL(encodeWav(pcm));
     const audio = new Audio(url);
     await audio.play().catch(() => undefined);
@@ -105,7 +107,8 @@ export function TestCenter() {
     const peak = Number(stats.peakRms);
     const status: Status = peak < 0.002 ? "fail" : !stats.heardVoice ? "warn" : "pass";
     const verdict = peak < 0.002 ? "Digital silence: this input device sends no sound." : !stats.heardVoice ? "Very quiet: no speech detected." : "Voice detected.";
-    return { status, detail: `${verdict} Device: ${stats.device}. Peak ${stats.peakRms}, avg ${stats.avgRms}. Playing back now.`, data: { ...stats, raw } };
+    const switched = stats.switchedFromVirtual ? ` Switched away from silent virtual device "${stats.switchedFromVirtual}".` : "";
+    return { status, detail: `${verdict}${switched} Device: ${stats.device}. Peak ${stats.peakRms}, avg ${stats.avgRms}. Playing back now.`, data: { ...stats, raw } };
   };
 
   const tests: Record<string, () => Promise<{ status?: Status; detail: string; data?: Record<string, unknown> }>> = {
@@ -163,6 +166,8 @@ export function TestCenter() {
     cloudStt: async () => {
       const pcm = recordingRef.current;
       if (!pcm?.length) return { status: "warn", detail: "Run a microphone recording first." };
+      // Gemini invents sentences for silent audio, so never send a recording without detected voice.
+      if (!recordingHadVoiceRef.current) return { status: "warn", detail: "Skipped: the last recording had no detected voice (cloud models hallucinate text for silence)." };
       const text = await cloudTranscribe(encodeWav(pcm), LOCALE, "test_page");
       return { detail: `Heard: “${text}”`, data: { chars: text.length } };
     },

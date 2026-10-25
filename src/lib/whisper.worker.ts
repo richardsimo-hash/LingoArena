@@ -37,11 +37,45 @@ function loadTransformers() {
   return modulePromise;
 }
 
+/**
+ * Older builds let Transformers.js fetch /models/... from this site; the SPA rewrite answered with
+ * index.html and the library cached that HTML as if it were config.json. Remove any cached entry
+ * that is HTML (or empty) so the real files are downloaded from the Hub.
+ */
+async function purgeBadCacheEntries(clearAll = false): Promise<number> {
+  if (typeof caches === "undefined") return 0;
+  let removed = 0;
+  try {
+    if (clearAll) return (await caches.delete("transformers-cache")) ? 1 : 0;
+    const cache = await caches.open("transformers-cache");
+    for (const request of await cache.keys()) {
+      const response = await cache.match(request);
+      const type = response?.headers.get("content-type") || "";
+      const bad = !response || type.includes("text/html")
+        || (/\.json(?:$|\?)/.test(request.url) && (await response.clone().text()).trimStart().startsWith("<"));
+      if (bad) { await cache.delete(request); removed++; }
+    }
+  } catch { /* the cache is an optimisation; never block transcription on it */ }
+  return removed;
+}
+let purged: Promise<number> | null = null;
+
 function getPipeline(model: string) {
   let pipe = pipelines.get(model);
   if (!pipe) {
-    pipe = loadTransformers().then((transformers) => transformers.pipeline("automatic-speech-recognition", model, {
+    const create = (transformers: TransformersModule) => transformers.pipeline("automatic-speech-recognition", model, {
       progress_callback: (progress: unknown) => ctx.postMessage({ type: "progress", model, progress }),
+    });
+    purged ??= purgeBadCacheEntries().then((removed) => {
+      if (removed) ctx.postMessage({ type: "progress", model, progress: { status: "cache_repaired", removed } });
+      return removed;
+    });
+    pipe = purged.then(loadTransformers).then((transformers) => create(transformers).catch(async (error) => {
+      // A corrupt cached file still fails as a JSON/protobuf parse error: clear the cache and retry once.
+      if (!/JSON|Unexpected token|protobuf|invalid/i.test(String(error))) throw error;
+      ctx.postMessage({ type: "progress", model, progress: { status: "cache_cleared_retry", error: String(error).slice(0, 120) } });
+      await purgeBadCacheEntries(true);
+      return create(transformers);
     }));
     pipe.catch(() => pipelines.delete(model));
     pipelines.set(model, pipe);

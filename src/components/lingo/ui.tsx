@@ -187,6 +187,7 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
         recognitionEnded?.();
         if (ended) return;
         if (webText.trim() || !capture) { void finish("web_speech_end"); return; }
+        if (capture.switchedFromVirtual) return;
         // Web Speech gave up without text; keep recording and let Whisper + silence detection finish the turn.
         logDiagnostic("mic", "web_speech_ended_without_text", "warn", {});
         setAudioMicState("local_whisper");
@@ -209,6 +210,12 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
     }).then((started) => {
       if (ended) { started.stop(); return; }
       capture = started;
+      if (started.switchedFromVirtual && recognition && webSpeechActive) {
+        // Web Speech always uses the system default input, which here is a silent virtual device.
+        webSpeechActive = false; recognitionActiveRef.current = false;
+        try { recognition.abort(); } catch { /* ignored */ }
+        logDiagnostic("mic", "web_speech_disabled_virtual_default", "warn", started.stats());
+      }
       if (!webSpeechActive) setAudioMicState("local_whisper");
       liveTimer = window.setInterval(runLiveWhisper, 900);
       window.setTimeout(() => { if (!ended && capture) logDiagnostic("mic", "level_check_1500ms", "info", capture.stats()); }, 1500);
