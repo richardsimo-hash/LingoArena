@@ -78,7 +78,7 @@ export function GrammarBattle({ lingo, reward, fail }: { lingo: Lingo; reward: (
         {speech.error && <p className="text-sm font-bold text-destructive">{speech.error}</p>}
         {speech.listening && <p className="text-xs font-bold text-primary">Listening… speak the full sentence, then pause.</p>}
         {!speech.supported && <p className="text-xs text-muted-foreground">{t("noVoice")}</p>}
-        {!done && <Btn className="w-full" onClick={submit} disabled={!input.trim()}><Send className="mr-2 inline h-4 w-4" />{attempts ? t("resubmit") : t("submit")}</Btn>}
+        {!done && <Btn className="w-full" onClick={() => submit(input)} disabled={!input.trim()}><Send className="mr-2 inline h-4 w-4" />{attempts ? t("resubmit") : t("submit")}</Btn>}
       </div>
 
       {result && !result.exact && !done && (
