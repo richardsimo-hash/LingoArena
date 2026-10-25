@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Flame, Eye, EyeOff, Volume2 } from "lucide-react";
-import { CONCEPTS, TARGETS, type Concept } from "@/lib/lingo/content";
+import { TARGETS, practiceConcepts, type Concept } from "@/lib/lingo/content";
 import { shuffle } from "@/lib/lingo/engine";
 import { makeT } from "@/lib/lingo/i18n";
 import type { Lingo } from "@/lib/lingo/store";
@@ -25,10 +25,10 @@ export function FireCombo({ lingo, reward }: { lingo: Lingo; reward: (xp: number
   const [questions, setQuestions] = useState<Question[]>([]); const [selected, setSelected] = useState<string | null>(null); const [reveal, setReveal] = useState(false); const [earned, setEarned] = useState(0);
   const config = FIRE_COMBO_LEVELS[level - 1]!; const q = questions[index];
   const makeQuestions = (chosen: number) => {
-    const cfg = FIRE_COMBO_LEVELS[chosen - 1]!; const deck = shuffle(CONCEPTS);
+    const cfg = FIRE_COMBO_LEVELS[chosen - 1]!; const pool = practiceConcepts(lingo.done); const deck = shuffle(pool);
     return Array.from({ length: cfg.count }, (_, i) => {
       const concept = deck[i % deck.length]!;
-      const options = shuffle([concept, ...shuffle(CONCEPTS.filter((c) => c.id !== concept.id)).slice(0, 3)]);
+      const options = shuffle([concept, ...shuffle(pool.filter((c) => c.id !== concept.id)).slice(0, 3)]);
       return { concept, options };
     });
   };

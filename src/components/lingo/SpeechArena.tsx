@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw, SkipForward, Zap, Eye, EyeOff, Volume2, Trophy } from "lucide-react";
-import { CONCEPTS, TARGETS, type Concept } from "@/lib/lingo/content";
+import { TARGETS, practiceConcepts, type Concept } from "@/lib/lingo/content";
 import { compareSpeech, makeDeck, shuffle, type SpeechCompare } from "@/lib/lingo/engine";
 import { langName, makeT } from "@/lib/lingo/i18n";
 import type { Lingo } from "@/lib/lingo/store";
@@ -30,7 +30,8 @@ function Duel({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void })
   const { s, update } = lingo;
   const t = makeT(s.native);
   const tg = TARGETS.find((x) => x.id === s.target)!;
-  const deck = useRef(makeDeck(CONCEPTS)).current; // no repeats until every phrase was used
+  // Phrases from the units the learner has reached; no repeats until every phrase was used.
+  const deck = useRef(makeDeck(practiceConcepts(lingo.done))).current;
   const [c, setC] = useState<Concept>(() => deck());
   const [spoken, setSpoken] = useState("");
   const [typed, setTyped] = useState("");
@@ -131,7 +132,8 @@ function Rapid({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void; 
 
   const start = (selectedLevel = level) => {
     const config = TURBO_LEVELS[selectedLevel - 1]!;
-    const shuffled = shuffle(CONCEPTS);
+    const pool = practiceConcepts(lingo.done);
+    const shuffled = shuffle(pool);
     const picks = Array.from({ length: config.questions }, (_, i) => shuffled[i % shuffled.length]!);
     const usedConceptIds = new Set<string>();
     setQs(picks.map((original, i) => {
@@ -145,7 +147,7 @@ function Rapid({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void; 
       usedConceptIds.add(c.id);
       const seen = new Set([c.tr[s.native]]);
       const opts: Concept[] = [];
-      const candidates = shuffle(CONCEPTS.filter((x) => x.id !== c.id));
+      const candidates = shuffle(pool.filter((x) => x.id !== c.id));
       for (const x of candidates) {
         if (seen.has(x.tr[s.native])) continue;
         seen.add(x.tr[s.native]); opts.push(x);

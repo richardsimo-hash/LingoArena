@@ -1,4 +1,4 @@
-import type { NativeLang, TargetLang } from "./content";
+import { UNITS, type NativeLang, type TargetLang } from "./content";
 
 // Column order for every entry below: en, es, fr, de, it, pt
 export const UI_ORDER: NativeLang[] = ["en", "es", "fr", "de", "it", "pt"];
@@ -142,7 +142,11 @@ const UNIT_TITLES: Record<NativeLang, string[]> = {
   it: ["Saluti e cortesia", "Caffè e cibo", "Indicazioni e trasporti", "Shopping e hotel", "Salute ed emergenze"],
   pt: ["Cumprimentos e cortesia", "Cafés e comida", "Direções e transportes", "Compras e hotéis", "Saúde e emergências"],
 };
-export const unitTitle = (unit: number, native: NativeLang) => UNIT_TITLES[native][unit] ?? UNIT_TITLES.en[unit] ?? "";
+export const unitTitle = (unit: number, native: NativeLang) => {
+  const own = UNITS[unit]?.titles;
+  if (own) return own[Math.max(0, UI_ORDER.indexOf(native))] || own[0];
+  return UNIT_TITLES[native][unit] ?? UNIT_TITLES.en[unit] ?? UNITS[unit]?.title ?? "";
+};
 
 /** Language name written in the learner's native language (e.g. native=es, id=en -> "Inglés"). */
 export function langName(id: TargetLang | NativeLang, native: NativeLang): string {

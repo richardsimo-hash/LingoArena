@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Send, Swords, RefreshCw, Lightbulb, Eye, EyeOff } from "lucide-react";
-import { CONCEPTS, PERSONAS, TARGETS, type Concept } from "@/lib/lingo/content";
+import { PERSONAS, TARGETS, practiceConcepts, type Concept } from "@/lib/lingo/content";
 import { dictationCheck, makeDeck, type DictationResult } from "@/lib/lingo/engine";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import type { Lingo } from "@/lib/lingo/store";
@@ -18,7 +18,8 @@ export function GrammarBattle({ lingo, reward, fail }: { lingo: Lingo; reward: (
   const t = makeT(s.native);
   const tg = TARGETS.find((x) => x.id === s.target)!;
   const persona = PERSONAS.find((p) => p.id === s.persona)!;
-  const deck = useRef(makeDeck(CONCEPTS)).current; // never repeats a sentence until all were used
+  // Phrases from the units the learner has reached; never repeats a sentence until all were used.
+  const deck = useRef(makeDeck(practiceConcepts(lingo.done))).current;
   const [ci, setCi] = useState(0);
   const [c, setC] = useState<Concept>(() => deck());
   const [input, setInput] = useState("");

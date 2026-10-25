@@ -40,12 +40,12 @@ export function Stats({ lingo }: { lingo: Lingo }) {
         <div className="space-y-3">
           {TARGETS.filter((x) => x.id !== s.native).map((x) => {
             const c = s.progress[x.id]?.completed ?? 0;
-            const available = TOTAL_NODES + Math.max(1, lvl - 1) * 3;
+            const available = TOTAL_NODES;
             return (
               <div key={x.id} className="flex items-center gap-3">
                 <span className="text-2xl" title={langName(x.id, s.native)}>{x.flag}</span>
                 <div className="h-3 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (c / available) * 100)}%` }} /></div>
-                <span className="w-16 text-right text-sm font-bold">{c}/{available}+</span>
+                <span className="w-20 text-right text-sm font-bold">{c}/{available}</span>
               </div>
             );
           })}

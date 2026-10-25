@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from "vite";
+import { configDefaults } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "url";
 import path from "path";
@@ -15,5 +16,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // lingo_current/ is an old copy of the app kept in the repo; its tests target removed behaviour.
+    exclude: [...configDefaults.exclude, "lingo_current/**"],
   },
 });

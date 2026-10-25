@@ -1,6 +1,11 @@
 export type TargetLang = "es" | "fr" | "en" | "de" | "it" | "ja" | "pt";
 export type NativeLang = "en" | "es" | "fr" | "de" | "it" | "pt";
 export type PersonaId = "barista" | "gatekeeper" | "guide";
+import type { Cefr, Row, Titles, UnitDef } from "./curriculum/types";
+import { A1 } from "./curriculum/a1";
+import { A2 } from "./curriculum/a2";
+import { B1 } from "./curriculum/b1";
+import { B2 } from "./curriculum/b2";
 
 export const TARGETS: { id: TargetLang; name: string; flag: string; locale: string }[] = [
   { id: "es", name: "Spanish", flag: "🇪🇸", locale: "es-ES" },
@@ -22,24 +27,39 @@ export const PERSONAS: { id: PersonaId; name: string; emoji: string; blurb: stri
   { id: "guide", name: "The Energetic Tour Guide", emoji: "🗺️", blurb: "Rapid-fire travel & directions.", lines: [] },
 ];
 
-/** Unit titles are translated in i18n.ts (unitTitle). `title` is the English fallback. */
-export const UNITS = [
-  { title: "Greetings & Politeness", emoji: "👋" },
-  { title: "Cafés & Food", emoji: "🥐" },
-  { title: "Directions & Transport", emoji: "🧭" },
-  { title: "Shopping & Hotels", emoji: "🛍️" },
-  { title: "Health & Emergencies", emoji: "🚑" },
+export type { Cefr } from "./curriculum/types";
+
+/**
+ * 100 units, 3 lessons each, 3 new phrases per lesson, ordered by CEFR level:
+ * A1 = units 1-29, A2 = 30-53, B1 = 54-77, B2 = 78-100. Units 1-5 are the original course
+ * (kept first so saved progress, stored as lesson indexes, stays valid).
+ * Titles for units 1-5 are translated in i18n.ts; later units carry their own `titles`.
+ */
+const CURRICULUM: UnitDef[] = [...A1, ...A2, ...B1, ...B2];
+export type Unit = { title: string; emoji: string; level: Cefr; focus: string; titles?: Titles };
+export const UNITS: Unit[] = [
+  { title: "Greetings & Politeness", emoji: "👋", level: "A1", focus: "Greetings, thanks and introductions" },
+  { title: "Cafés & Food", emoji: "🥐", level: "A1", focus: "Ordering food and drinks politely" },
+  { title: "Directions & Transport", emoji: "🧭", level: "A1", focus: "Asking where things are and getting around" },
+  { title: "Shopping & Hotels", emoji: "🛍️", level: "A1", focus: "Prices, sizes and hotel basics" },
+  { title: "Health & Emergencies", emoji: "🚑", level: "A1", focus: "Asking for help and describing symptoms" },
+  ...CURRICULUM.map((unit) => ({ title: unit.title[0], emoji: unit.emoji, level: unit.level, focus: unit.focus, titles: unit.title })),
 ];
+export const CEFR_LEVELS: { level: Cefr; label: string; first: number; last: number }[] = (["A1", "A2", "B1", "B2"] as const).map((level) => ({
+  level,
+  label: { A1: "Beginner", A2: "Elementary", B1: "Intermediate", B2: "Upper-intermediate" }[level],
+  first: UNITS.findIndex((unit) => unit.level === level),
+  last: UNITS.length - 1 - [...UNITS].reverse().findIndex((unit) => unit.level === level),
+}));
 export const NODES_PER_UNIT = 3;
 export const CONCEPTS_PER_NODE = 3;
 
 // Column order of every row below.
 const COLS: TargetLang[] = ["en", "es", "fr", "de", "it", "pt", "ja"];
-type Row = [string, string, string, string, string, string, string];
 
-// 5 units x 9 concepts. Every concept is used in exactly ONE unit/lesson, so no
-// phrase is ever repeated across units. Each lesson (node) owns 3 concepts.
-const DATA: Row[][] = [
+// Units 1-5 (9 concepts each); units 6-100 come from ./curriculum. Every concept is used in
+// exactly ONE unit/lesson, so no phrase is ever repeated. Each lesson (node) owns 3 concepts.
+const ORIGINAL: Row[][] = [
   // Unit 1 — Greetings & Politeness
   [
     ["Hello", "Hola", "Salut", "Hallo", "Ciao", "Olá", "こんにちは"],
@@ -102,6 +122,8 @@ const DATA: Row[][] = [
   ],
 ];
 
+const DATA: Row[][] = [...ORIGINAL, ...CURRICULUM.map((unit) => unit.rows)];
+
 export type Concept = { id: string; unit: number; node: number; tr: Record<TargetLang, string> };
 
 export const CONCEPTS: Concept[] = DATA.flatMap((rows, unit) =>
@@ -115,3 +137,14 @@ export const CONCEPTS: Concept[] = DATA.flatMap((rows, unit) =>
 
 export const unitConcepts = (unit: number) => CONCEPTS.filter((c) => c.unit === unit);
 export const nodeConcepts = (unit: number, node: number) => CONCEPTS.filter((c) => c.unit === unit && c.node === node);
+
+/**
+ * Phrases a learner has reached, for the practice modes (Speech Arena, Grammar Battle, Fire Combo):
+ * every unit up to two past their furthest finished lesson, and always at least units 1-5,
+ * so beginners are not handed B2 idioms while advanced learners still get variety.
+ */
+export function practiceConcepts(done: number[]): Concept[] {
+  const furthest = done.length ? Math.floor(Math.max(...done) / NODES_PER_UNIT) : 0;
+  const lastUnit = Math.min(UNITS.length - 1, Math.max(4, furthest + 2));
+  return CONCEPTS.filter((c) => c.unit <= lastUnit);
+}
