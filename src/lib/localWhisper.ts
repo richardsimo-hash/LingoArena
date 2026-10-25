@@ -96,7 +96,10 @@ export async function transcribeLocally(blob: Blob, locale: string, onProgress?:
     const audio = await blobTo16kMono(blob);
     const transcriber = await getPipeline(locale);
     notify({ status: "transcribing", progress: 100 });
+    const language = locale.split("-")[0].toLowerCase();
     const result = await transcriber(audio, {
+      language,
+      task: "transcribe",
       sampling_rate: 16000,
       chunk_length_s: 20,
       stride_length_s: 3,
