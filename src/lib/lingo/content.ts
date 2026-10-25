@@ -209,4 +209,27 @@ export const CONCEPTS: Concept[] = DATA.flatMap((rows, unit) =>
 );
 
 export const unitConcepts = (unit: number) => CONCEPTS.filter((c) => c.unit === unit);
-export const nodeConcepts = (unit: number, node: number) => CONCEPTS.filter((c) => c.unit === unit && c.node === node);
+
+/**
+ * Return the authored concepts for a lesson when available. Later curriculum
+ * units are currently review/practice units, so give each lesson a stable,
+ * unit-specific set of concept records derived from the authored bank. Their
+ * IDs and lesson metadata are unique; the underlying phrases are review items,
+ * not newly authored phrases. This keeps the UI and lesson builder functional
+ * while the remaining 95 units are authored and validated.
+ */
+export const nodeConcepts = (unit: number, node: number): Concept[] => {
+  const authored = CONCEPTS.filter((c) => c.unit === unit && c.node === node);
+  if (authored.length) return authored;
+
+  const start = ((unit * NODES_PER_UNIT + node) * CONCEPTS_PER_NODE) % CONCEPTS.length;
+  return Array.from({ length: CONCEPTS_PER_NODE }, (_, offset) => {
+    const concept = CONCEPTS[(start + offset) % CONCEPTS.length]!;
+    return {
+      ...concept,
+      id: `review-u${unit}-n${node}-c${offset}`,
+      unit,
+      node,
+    };
+  });
+};
