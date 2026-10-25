@@ -75,7 +75,15 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
    * The final answer prefers Web Speech text, then a full on-device Whisper pass, and only then
    * the optional cloud fallback.
    */
-  const listen = (onDone: (text: string) => void, onInterim?: (text: string) => void, continuous = true) => {
+  type ListenOptions = {
+    /** Called instead of showing "didn't hear you" when the turn ends without speech (hands-free keeps going). */
+    onNoSpeech?: () => void;
+    /** Pause length that ends a turn; shorter feels more conversational. */
+    silenceMs?: number;
+    noVoiceTimeoutMs?: number;
+  };
+  const listen = (onDone: (text: string) => void, onInterim?: (text: string) => void, continuous = true, opts: ListenOptions = {}) => {
+    const silenceMs = opts.silenceMs ?? 1300;
     sessionRef.current?.cancel();
     const recognition = getRecognition();
     if (!recognition && !navigator.mediaDevices?.getUserMedia) { setSupported(false); setError(t("noVoice")); return; }
@@ -95,6 +103,7 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
     let capture: LiveCapture | null = null;
     let liveTimer: number | null = null;
     let liveBusy = false;
+    let whisperCovered = 0; // samples included in the latest live transcript
     let recognitionEnded: (() => void) | null = null;
 
     const showInterim = () => {
@@ -115,9 +124,10 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
       if (ended || liveBusy || !capture || webText || !capture.heardVoice() || !isLocalWhisperReady(lang)) return;
       liveBusy = true;
       const pcm = capture.samples();
+      const coveredAt = pcm.length;
       const recent = pcm.length > 16000 * 28 ? pcm.subarray(pcm.length - 16000 * 28) : pcm;
       transcribePcm(recent, lang)
-        .then((text) => { if (!ended && text && !webText) { whisperText = text; showInterim(); } })
+        .then((text) => { if (text && !webText) { whisperText = text; whisperCovered = coveredAt; if (!ended) showInterim(); } })
         .catch((cause) => logDiagnostic("stt", "live_whisper_failed", "warn", { error: cause instanceof Error ? cause.message : String(cause) }))
         .finally(() => { liveBusy = false; });
     };
@@ -146,7 +156,15 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
       logDiagnostic("mic", "listen_finished", "info", { reason, webTextLength: webText.length, whisperTextLength: whisperText.length, recordedMs: Math.round((pcm.length / 16000) * 1000), webSpeechUsed: Boolean(recognition), ...stats });
       if (webText.trim()) { deliver(webText.trim()); return; }
       if (reason === "mic_blocked") { setError(t("micBlocked")); return; }
-      if (pcm.length < 16000 * 0.3) { setError(t("noSpeech")); return; }
+      const noSpeech = () => { if (opts.onNoSpeech) { setError(null); opts.onNoSpeech(); } else setError(t("noSpeech")); };
+      if (pcm.length < 16000 * 0.3) { noSpeech(); return; }
+      // Fast path: the turn ended on a pause and the live transcript already includes everything
+      // said before that pause, so answer immediately instead of re-transcribing the whole clip.
+      if (reason === "silence" && whisperText && whisperCovered >= pcm.length - 16 * (silenceMs + 300)) {
+        logDiagnostic("stt", "live_transcript_reused", "info", { coveredMs: Math.round(whisperCovered / 16), recordedMs: Math.round(pcm.length / 16) });
+        deliver(whisperText);
+        return;
+      }
       // A peak this low is digital silence: the browser is reading a muted or wrong input device.
       const silentMic = typeof stats.peakRms === "number" && stats.peakRms < 0.002;
       setProcessing(true);
@@ -159,7 +177,7 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
         logDiagnostic("mic", "final_transcription_failed", heardVoice ? "error" : "warn", { error: cause instanceof Error ? cause.message : String(cause), heardVoice, silentMic });
         if (whisperText) deliver(whisperText);
         else if (silentMic) setError(`Your microphone is sending silence (${String(stats.device || "unknown device")}). Pick the right input in your system sound settings or the browser's mic menu, then try again.`);
-        else if (!heardVoice) setError(t("noSpeech"));
+        else if (!heardVoice) noSpeech();
         else setError(`I couldn't recognize that speech. Please try again or type your answer. (${cause instanceof Error ? cause.message : String(cause)})`);
       } finally {
         setProcessing(false);
@@ -205,6 +223,8 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
     startLiveCapture({
       // Hands-free turns (continuous=false) end on a pause; continuous turns end when the user taps stop.
       onSilenceAfterVoice: () => { if (!continuous || !webSpeechActive) void finish("silence"); },
+      silenceMs,
+      noVoiceTimeoutMs: opts.noVoiceTimeoutMs,
       onNoVoice: () => void finish("no_voice"),
       onMaxDuration: () => void finish("max_duration"),
     }).then((started) => {

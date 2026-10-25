@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { Send, PhoneOff, Clock, Headphones, Mic, MicOff } from "lucide-react";
+import { Send, PhoneOff, Clock, Headphones, Mic, Shuffle } from "lucide-react";
 import { PERSONAS, TARGETS } from "@/lib/lingo/content";
-import { chatReply, localChat, shouldUseCloudChat } from "@/lib/lingo/chat.functions";
+import { chatStream, localChat, splitReply } from "@/lib/lingo/chat.functions";
+import { createSentenceSpeaker } from "@/lib/lingo/sentenceSpeaker";
+import { NUDGES, TOPICS, randomTopic, topicLabel, type Topic } from "@/lib/lingo/topics";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { speak, stopSpeaking, unlockAudio, getAccent } from "@/lib/voice";
 import type { Lingo } from "@/lib/lingo/store";
@@ -42,13 +44,18 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   const [elapsed, setElapsed] = useState(0);
   const [offline, setOffline] = useState(false);
   const [offlineReason, setOfflineReason] = useState("");
+  const [topic, setTopic] = useState<Topic>(() => randomTopic());
+  const topicRef = useRef(topic);
+  topicRef.current = topic;
+  const usedTopicsRef = useRef<string[]>([]);
+  const speakerRef = useRef<ReturnType<typeof createSentenceSpeaker> | null>(null);
   const speech = useSpeech(tg.locale, s.native);
   const msgsRef = useRef<Msg[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
   const phaseRef = useRef(phase);
   msgsRef.current = msgs; phaseRef.current = phase; handsFreeRef.current = handsFree;
 
-  useEffect(() => () => stopSpeaking(), []);
+  useEffect(() => () => { speakerRef.current?.cancel(); stopSpeaking(); }, []);
   useEffect(() => {
     const updateMouth = (event: Event) => {
       const level = Number((event as CustomEvent<{ level?: number }>).detail?.level || 0);
@@ -74,7 +81,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
 
   const finish = () => {
     if (phaseRef.current !== "chat") return;
-    stopSpeaking(); speech.stop();
+    speakerRef.current?.cancel(); stopSpeaking(); speech.stop();
     const turns = msgsRef.current.filter((m) => m.role === "user").length;
     if (turns > 0) reward(Math.min(30, turns * 3));
     setPhase("summary");
@@ -90,82 +97,93 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     active: phase === "chat",
     onTranscript: (text) => sendRef.current(text),
     onInterim: setInput,
+    onIdle: () => { if (phaseRef.current === "chat") void askRef.current(msgsRef.current, { nudge: true }); },
   });
+  const askRef = useRef<(history: Msg[], extra?: { nudge?: boolean }) => Promise<void>>(async () => undefined);
 
-  const ask = async (history: Msg[]) => {
+  const afterReply = () => {
+    setTalking(false);
+    if (handsFreeRef.current && phaseRef.current === "chat") handsFreeController.resumeListening();
+  };
+
+  const ask = async (history: Msg[], extra: { nudge?: boolean } = {}) => {
     setBusy(true);
     if (handsFreeRef.current) handsFreeController.thinking();
     if (history.length > 12) {
       const older = history.slice(0, -12).map((message) => `${message.role === "user" ? "Learner" : "Chloe"}: ${message.content}`).join(" | ");
       rollingSummaryRef.current = older.slice(-1100);
     }
-    let reply = "", correction = "";
-    const latestUserText = [...history].reverse().find((message) => message.role === "user")?.content || "";
-    const useCloud = shouldUseCloudChat(latestUserText);
-    // The opening greeting and everyday short turns are local; Gemini is reserved for
-    // requests that explicitly need deeper explanation, correction, comparison, or analysis.
-    if (!useCloud) {
-      const local = localChat({
-        messages: history,
-        targetName: langName(s.target, "en"),
-        nativeName: langName(s.native, "en"),
-        persona: persona.id,
-        target: s.target,
-      });
-      reply = local.reply;
-      correction = local.correction;
-      setOffline(true);
-      setOfflineReason("Local-first mode: simple conversation handled without Gemini");
-    } else try {
-      const estimatedInputTokens = Math.ceil(history.reduce((sum, message) => sum + message.content.length, 0) / 4);
-      const r = await chatReply({
-        messages: history.slice(-12).map(({ role, content }) => ({ role, content })),
-        targetName: langName(s.target, "en"),
-        nativeName: langName(s.native, "en"),
-        persona: persona.id,
-        cefr: `A${Math.min(2, Math.max(1, Math.ceil((lingo.s.xp + 1) / 300)))}`,
-        accent: getAccent(s.target),
-        rollingSummary: rollingSummaryRef.current,
-        sessionTokensUsed: sessionTokensRef.current,
-      });
-      if (!r.ok) throw new Error(r.error);
-      ({ reply, correction } = parse(r.text));
-      sessionTokensRef.current += estimatedInputTokens + Math.ceil(r.text.length / 4);
-      setOffline(false);
-      setOfflineReason("");
-    } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      setOffline(true);
-      setOfflineReason(reason);
-      console.warn("[LingoArena chat] using local phrasebook fallback:", reason);
-      const local = localChat({
-        messages: history,
-        targetName: langName(s.target, "en"),
-        nativeName: langName(s.native, "en"),
-        persona: persona.id,
-        target: s.target,
-      });
-      reply = local.reply;
-      correction = local.correction;
-    }
-    if (phaseRef.current !== "chat") return;
-    const base = history.map((m, i) => (correction && i === history.length - 1 && m.role === "user" ? { ...m, correction } : m));
-    setMsgs([...base, { role: "assistant", content: reply }]);
-    setBusy(false);
-    speak(reply, { lang: tg.locale, rate: s.rate }, {
+    speakerRef.current?.cancel();
+    // The reply is spoken sentence by sentence while it streams in, so Chloe starts talking
+    // within about a second instead of after the whole answer has been generated.
+    const speaker = createSentenceSpeaker({
+      lang: tg.locale, rate: s.rate,
       onStart: () => { setTalking(true); if (handsFreeRef.current) handsFreeController.speaking(); },
-      onEnd: () => {
-        setTalking(false);
-        if (handsFreeRef.current && phaseRef.current === "chat") handsFreeController.resumeListening();
-      },
+      onDone: afterReply,
     });
+    speakerRef.current = speaker;
+    let shown = false;
+    const showReply = (reply: string, correction = "") => {
+      if (phaseRef.current !== "chat") return;
+      const base = history.map((m, i) => (correction && i === history.length - 1 && m.role === "user" ? { ...m, correction } : m));
+      setMsgs([...base, { role: "assistant", content: reply }]);
+      if (!shown) { shown = true; setBusy(false); }
+    };
+    const estimatedInputTokens = Math.ceil(history.reduce((sum, message) => sum + message.content.length, 0) / 4);
+    const r = await chatStream({
+      messages: history.slice(-12).map(({ role, content }) => ({ role, content })),
+      targetName: langName(s.target, "en"),
+      nativeName: langName(s.native, "en"),
+      persona: persona.id,
+      cefr: `A${Math.min(2, Math.max(1, Math.ceil((lingo.s.xp + 1) / 300)))}`,
+      accent: getAccent(s.target),
+      rollingSummary: rollingSummaryRef.current,
+      sessionTokensUsed: sessionTokensRef.current,
+      topic: topicRef.current.en,
+      previousTopics: usedTopicsRef.current,
+      nudge: extra.nudge,
+    }, (textSoFar) => {
+      if (phaseRef.current !== "chat" || speakerRef.current !== speaker) return;
+      const { reply } = splitReply(textSoFar);
+      if (reply) { showReply(reply); speaker.update(reply); }
+    });
+    if (phaseRef.current !== "chat" || speakerRef.current !== speaker) return;
+    if (r.ok) {
+      const { reply, correction } = splitReply(r.text);
+      sessionTokensRef.current += estimatedInputTokens + Math.ceil(r.text.length / 4);
+      setOffline(false); setOfflineReason("");
+      showReply(reply, correction);
+      speaker.update(reply, true);
+      return;
+    }
+    // AI unavailable: keep the conversation going with the on-device phrasebook.
+    console.warn("[LingoArena chat] using local phrasebook fallback:", r.error);
+    setOffline(true); setOfflineReason(r.error);
+    const local = localChat({ messages: history, targetName: langName(s.target, "en"), nativeName: langName(s.native, "en"), persona: persona.id, target: s.target });
+    const nudges = NUDGES[s.target] || NUDGES.en!;
+    const reply = extra.nudge ? `${nudges[Math.floor(Math.random() * nudges.length)]} ${local.reply}` : local.reply;
+    showReply(reply, local.correction);
+    speaker.update(reply, true);
+  };
+  askRef.current = ask;
+
+  const changeTopic = (next?: Topic) => {
+    const chosen = next ?? randomTopic([topicRef.current.id, ...usedTopicsRef.current]);
+    usedTopicsRef.current = [...usedTopicsRef.current, topicRef.current.id].slice(-8);
+    setTopic(chosen); topicRef.current = chosen;
+    if (phaseRef.current === "chat") {
+      speakerRef.current?.cancel(); stopSpeaking(); setTalking(false);
+      const history: Msg[] = [...msgsRef.current, { role: "user", content: `(Let's switch topic to: ${chosen.en}.)` }];
+      void ask(history);
+    }
   };
 
   const begin = () => {
     void unlockAudio();
     setMsgs([]); rollingSummaryRef.current = ""; sessionTokensRef.current = 0; setElapsed(0); setLeft(minutes * 60); setOffline(false); setOfflineReason(""); setPhase("chat");
     phaseRef.current = "chat";
-    void ask([]); // the avatar opens the conversation
+    usedTopicsRef.current = [];
+    void ask([]); // the avatar opens the conversation on the chosen topic
   };
   const send = (text: string) => {
     const v = text.trim();
@@ -178,7 +196,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
       if (handsFreeRef.current) handsFreeController.resumeListening();
       return;
     }
-    stopSpeaking(); setTalking(false);
+    speakerRef.current?.cancel(); stopSpeaking(); setTalking(false);
     if (handsFreeRef.current) handsFreeController.thinking(); else speech.stop();
     const history: Msg[] = [...msgsRef.current, { role: "user", content: v }];
     setMsgs(history); setInput("");
@@ -203,6 +221,15 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
               {d === 0 ? "∞" : d}<span className="block text-xs font-bold opacity-70">{d === 0 ? t("noLimit") : t("minutes")}</span>
             </button>
           ))}
+        </div>
+        <div className="space-y-2 text-left">
+          <p className="text-xs font-extrabold uppercase text-muted-foreground">{s.native === "es" ? "Tema" : "Topic"}</p>
+          <div className="flex gap-2">
+            <select value={topic.id} onChange={(e) => setTopic(TOPICS.find((x) => x.id === e.target.value) ?? topic)} className="min-w-0 flex-1 rounded-2xl border-2 border-border bg-background p-3 font-bold">
+              {TOPICS.map((x) => <option key={x.id} value={x.id}>{x.emoji} {topicLabel(x, s.native)}</option>)}
+            </select>
+            <button aria-label={s.native === "es" ? "Tema al azar" : "Random topic"} onClick={() => setTopic(randomTopic([topic.id]))} className="rounded-2xl border-2 border-border px-3 hover:bg-muted"><Shuffle className="h-5 w-5" /></button>
+          </div>
         </div>
         <button onClick={() => setHandsFree((v) => !v)} className={cn("flex w-full items-center justify-center gap-2 rounded-2xl border-2 p-3 font-extrabold", handsFree ? "border-primary bg-accent text-accent-foreground" : "border-border") }>
           {handsFree ? <Headphones className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
@@ -230,7 +257,10 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   return (
     <div className="mx-auto flex max-w-xl flex-col gap-4">
       <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1 font-extrabold"><Clock className="h-5 w-5" />{mmss(elapsed)} · sin límite</span>
+        <span className="flex items-center gap-1 font-extrabold"><Clock className="h-5 w-5" />{mmss(elapsed)}</span>
+        <button onClick={() => changeTopic()} title={s.native === "es" ? "Cambiar de tema" : "Change topic"} className="flex min-w-0 items-center gap-1 rounded-full border-2 border-border px-3 py-1 text-xs font-extrabold hover:bg-muted">
+          <span className="truncate">{topic.emoji} {topicLabel(topic, s.native)}</span><Shuffle className="h-3.5 w-3.5 shrink-0" />
+        </button>
         <Btn variant="ghost" className="px-3 py-2" onClick={finish}><PhoneOff className="mr-1 inline h-4 w-4" />{t("endChat")}</Btn>
       </div>
 
@@ -255,7 +285,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
       {offline && <p role="status" className="text-center text-xs font-bold text-muted-foreground">{s.native === "es" ? `Modo local: ${offlineReason || "el proveedor de IA no está disponible"}. Puedes seguir practicando con respuestas locales.` : `Local mode: ${offlineReason || "the AI provider is unavailable"}. You can keep practicing with local responses.`}</p>}
 
       <div className="max-h-[40vh] min-h-[160px] space-y-3 overflow-y-auto rounded-3xl border-2 border-border bg-card p-4">
-        {msgs.map((m, i) => (
+        {msgs.filter((m) => !(m.role === "user" && m.content.startsWith("(Let's switch topic"))).map((m, i) => (
           <div key={i} className={cn("flex flex-col", m.role === "user" ? "items-end" : "items-start")}>
             <div className={cn("max-w-[85%] rounded-2xl px-4 py-2 font-bold", m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted")}>{m.content}</div>
             {m.correction && <p className="mt-1 max-w-[85%] text-xs font-bold text-flame">✏️ {m.correction}</p>}

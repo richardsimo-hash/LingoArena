@@ -54,6 +54,53 @@ export async function chatReply(data: ChatInput): Promise<Reply> {
   }
 }
 
+export type StreamInput = ChatInput & { topic?: string; previousTopics?: string[]; nudge?: boolean };
+
+/**
+ * Streams the tutor's reply. `onText` receives the full text so far on every chunk, so the
+ * caller can start speaking the first sentence while the rest is still being generated.
+ */
+export async function chatStream(data: StreamInput, onText: (textSoFar: string) => void): Promise<Reply> {
+  const startedAt = performance.now();
+  try {
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...data, stream: true, sessionTokensUsed: data.sessionTokensUsed ?? 0 }),
+      signal: AbortSignal.timeout(45_000),
+    });
+    const contentType = (res.headers.get("content-type") || "").toLowerCase();
+    if (!res.ok || !contentType.startsWith("text/plain") || !res.body) {
+      const body = await res.text().catch(() => "");
+      let error = `http_${res.status}`;
+      try { const json = JSON.parse(body) as { error?: string; details?: Record<string, string> }; error = [json.error, json.details ? Object.values(json.details).join("; ") : ""].filter(Boolean).join(": "); } catch { error += `: ${body.slice(0, 160)}`; }
+      setAudioApiStatus(`chat:${res.status}`);
+      return { ok: false, error, latencyMs: Math.round(performance.now() - startedAt) };
+    }
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let text = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      onText(text);
+    }
+    text += decoder.decode();
+    setAudioApiStatus("chat:gemini-stream");
+    return text.trim() ? { ok: true, text, provider: "gemini", latencyMs: Math.round(performance.now() - startedAt) } : { ok: false, error: "api_chat_empty_stream" };
+  } catch (cause) {
+    const error = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause);
+    return { ok: false, error: `network: ${error}`, latencyMs: Math.round(performance.now() - startedAt) };
+  }
+}
+
+/** Splits streamed tutor text into the spoken part and an optional "§" correction line. */
+export function splitReply(text: string): { reply: string; correction: string } {
+  const at = text.indexOf("§");
+  return at < 0 ? { reply: text.trim(), correction: "" } : { reply: text.slice(0, at).trim(), correction: text.slice(at + 1).trim() };
+}
+
 /** On-device open conversation when the AI backend is not configured. */
 export function localChat(data: ChatInput & { target: TargetLang; persona: PersonaId }): { reply: string; correction: string } {
   const last = [...data.messages].reverse().find((m) => m.role === "user")?.content ?? "";

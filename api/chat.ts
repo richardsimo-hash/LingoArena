@@ -3,7 +3,10 @@ type ChatMessage = { role: "user" | "assistant"; content: string };
 type Body = {
   messages?: ChatMessage[]; targetName?: string; nativeName?: string; persona?: string;
   cefr?: string; accent?: string; rollingSummary?: string; sessionTokensUsed?: number;
+  /** Stream plain text (reply, then an optional "§ correction" line) instead of JSON. */
+  stream?: boolean; topic?: string; previousTopics?: string[]; nudge?: boolean;
 };
+type StreamingResponse = { setHeader?: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void }; write?: (chunk: string) => void; end?: () => void; flushHeaders?: () => void; statusCode?: number };
 const PERSONA_STYLE: Record<string, string> = {
   barista: "a warm, witty café barista who is curious about people",
   gatekeeper: "a patient, precise language coach who values clear communication",
@@ -81,6 +84,44 @@ async function geminiChat(key: string, system: string, messages: ChatMessage[]) 
   if (!text) throw new Error("gemini_chat_empty");
   return text;
 }
+/** Streams Gemini text to the client as it is generated, so speech can start on the first sentence. */
+async function geminiStream(key: string, model: string, system: string, messages: ChatMessage[], res: StreamingResponse): Promise<number> {
+  const contents = messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+  const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:streamGenerateContent?alt=sse&key=${encodeURIComponent(key)}`, {
+    method: "POST", signal: timeoutSignal(20000), headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ systemInstruction: { parts: [{ text: system }] }, contents, generationConfig: { maxOutputTokens: 220, temperature: 0.9 } }),
+  });
+  if (!response.ok || !response.body) throw new Error(`gemini_chat_http_${response.status}:${(await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200)}`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "", written = 0;
+  try {
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.startsWith("data:")) continue;
+      try {
+        const data = JSON.parse(line.slice(5)) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+        const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+        if (text) {
+          if (!written) { res.setHeader?.("Content-Type", "text/plain; charset=utf-8"); res.setHeader?.("Cache-Control", "no-store"); res.setHeader?.("X-Accel-Buffering", "no"); if (res.statusCode !== undefined) res.statusCode = 200; res.flushHeaders?.(); }
+          res.write?.(text); written += text.length;
+        }
+      } catch { /* partial or keep-alive line */ }
+    }
+  }
+  } catch (error) {
+    // Text already reached the learner: end that reply rather than appending another model's answer.
+    if (written) return written;
+    throw error;
+  }
+  return written;
+}
+
 export default async function handler(req: { method?: string; body?: Body; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader?: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void } }) {
   try {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "method_not_allowed", provider: "none", status: 405 });
@@ -95,18 +136,43 @@ export default async function handler(req: { method?: string; body?: Body; heade
   const history: ChatMessage[] = (Array.isArray(data.messages) ? data.messages : []).slice(-12).map((m) => ({
     role: m?.role === "assistant" ? "assistant" : "user", content: String(m?.content || "").slice(0, 800),
   }));
-  if (!history.length) history.push({ role: "user", content: "Start the conversation: greet me warmly and ask one natural question." });
+  const topic = String(data.topic || "").slice(0, 120);
+  const previousTopics = (Array.isArray(data.previousTopics) ? data.previousTopics : []).slice(-6).map((t) => String(t).slice(0, 80));
+  if (!history.length) history.push({ role: "user", content: topic ? `Start the conversation about: ${topic}. Greet me warmly in one short sentence and ask one natural, specific question about it.` : "Start the conversation: greet me warmly and ask one natural question." });
+  if (data.nudge) history.push({ role: "user", content: "(The learner has been silent for a while. Encourage them in a few words, then ask a simpler, very concrete question about the current topic. Keep it under 20 words.)" });
   const summary = String(data.rollingSummary || "").slice(0, 900);
   const approxInputTokens = Math.ceil((JSON.stringify(history).length + summary.length) / 4);
   const sessionTokensUsed = Math.max(0, Number(data.sessionTokensUsed) || 0);
   // Budget is diagnostic only: never block a healthy provider because a client estimate is high.
   const estimatedSessionTokens = sessionTokensUsed + approxInputTokens;
   const system = [
-    `You are Chloe, a warm, curious language tutor. Persona: ${persona}. Learner speaks ${native}, learns ${target}, CEFR ${cefr}, accent ${accent}.`,
-    `Speak mostly in ${target}, suitable for ${cefr}. Reply in 2-4 short spoken sentences, no markdown or emoji. Answer the real question with one useful detail/example, then ask one relevant follow-up. Recast errors naturally; do not overcorrect. Remember the conversation.`,
-    `Return ONLY JSON: {"reply":"spoken response","correction":"brief optional correction or empty string"}.`,
+    `You are Chloe, a warm, curious language tutor having a live spoken conversation. Persona: ${persona}. Learner speaks ${native}, learns ${target}, CEFR ${cefr}, accent ${accent}.`,
+    `Speak only in ${target}, at ${cefr} level. Sound like a real person on a call: 1-3 short, natural sentences, contractions, no lists, markdown or emoji. React to what the learner actually said with a genuine comment or a short personal detail, then ask exactly one open, specific follow-up question so they keep talking. Never lecture.`,
+    topic ? `Current topic: ${topic}. Stay on it while it is going well. If answers get very short or the topic has had about 6 exchanges, smoothly bridge to a fresh everyday topic${previousTopics.length ? ` (avoid: ${previousTopics.join(", ")})` : ""}.` : "Pick common, everyday topics and change topic smoothly when one runs dry.",
+    `If the learner seems lost, simplify your language. If they use ${native}, gently answer in ${target} with simpler words. Recast errors naturally inside your reply; do not overcorrect.`,
+    data.stream
+      ? `Output the spoken reply as plain text. Only if the learner made a clear mistake, add one final line starting with "§" containing a very brief correction in ${native}, e.g. "§ Say 'I went' instead of 'I goed'."`
+      : `Return ONLY JSON: {"reply":"spoken response","correction":"brief optional correction or empty string"}.`,
     summary ? `Earlier context summary: ${summary}` : "",
   ].filter(Boolean).join(" ");
+  const geminiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
+  if (data.stream && geminiKey) {
+    // Live conversation: stream the reply. Try the chat model, then a lighter fallback, before any text is sent.
+    const models = [...new Set([process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-flash-latest"])];
+    const failures: string[] = [];
+    const out = res as StreamingResponse;
+    for (const model of models) {
+      try {
+        const written = await geminiStream(geminiKey, model, system, history, out);
+        if (written) { out.end?.(); return; }
+        failures.push(`${model}: empty`);
+      } catch (error) {
+        failures.push(`${model}: ${statusOf(error)}`);
+      }
+    }
+    console.warn("[LingoArena API] Gemini stream failed", failures.join(" | "));
+    return res.status(503).json({ ok: false, error: "gemini_unavailable", provider: "gemini", status: 503, details: { gemini: failures.join(" | ").slice(0, 300) }, fallback: "local_phrasebook" });
+  }
   const cacheKey = JSON.stringify({ target, native, cefr, accent, persona, summary, history });
   const cached = requestCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return res.status(200).json({ text: cached.text, provider: cached.provider, cached: true, estimatedSessionTokens, budget: budget() });
