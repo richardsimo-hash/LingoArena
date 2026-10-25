@@ -3,6 +3,17 @@ import type { PersonaId, TargetLang } from "./content";
 import { setAudioApiStatus } from "../voice";
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
+/**
+ * Local-first routing for the Vercel prototype. Routine conversational turns use the
+ * built-in phrasebook; only explicit/likely complex tutoring requests consume Gemini.
+ */
+export function shouldUseCloudChat(text: string): boolean {
+  const value = text.trim();
+  if (!value) return false;
+  if (value.length >= 140) return true;
+  return /\b(explain|why|how does|how do i|correct|correction|grammar|compare|difference|differentiate|translate|translation|analy[sz]e|analyze|detailed|in detail|teach me|give me feedback|evaluate|improve my|what is the rule|rule for|explain why|por qué|porque|explica|explícame|corrige|corrección|gramática|compara|diferencia|traduce|traducción|analiza|detalladamente|enséñame|dame retroalimentación|regla gramatical|corrige mi|mejora mi|pourquoi|explique|corrige|grammaire|compare|différence|traduis|analyse|détaillé|warum|erkläre|korrigiere|grammatik|unterschied|vergleiche|übersetze|perché|spiega|correggi|grammatica|differenza|confronta|traduci|por que|explique|corrija|gramática|diferença|compare|traduza)\b/i.test(value);
+}
+
 export type ChatInput = { messages: ChatMsg[]; targetName: string; nativeName: string; persona: string; cefr?: string; accent?: string; rollingSummary?: string; sessionTokensUsed?: number };
 
 type Reply = { ok: true; text: string; provider?: string; latencyMs?: number } | { ok: false; error: string; provider?: string; latencyMs?: number };

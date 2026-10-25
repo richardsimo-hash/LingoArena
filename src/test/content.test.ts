@@ -5,6 +5,7 @@ import { compareSpeech, dictationCheck } from "@/lib/lingo/engine";
 import { buildLessonExercises } from "@/components/lingo/LearnPath";
 import { TURBO_LEVELS } from "@/components/lingo/SpeechArena";
 import { FIRE_COMBO_LEVELS } from "@/components/lingo/FireCombo";
+import { shouldUseCloudChat } from "@/lib/lingo/chat.functions";
 
 describe("lesson content", () => {
   it("never repeats a phrase across units or lessons, in any language", () => {
@@ -62,5 +63,22 @@ describe("speech comparison", () => {
   });
   it("accepts accent/punctuation differences in dictation", () => {
     expect(dictationCheck("¿Dónde está la estación?", "donde esta la estacion", "es").exact).toBe(true);
+  });
+});
+
+
+describe("local-first AI routing", () => {
+  it("keeps greetings and ordinary short turns local", () => {
+    expect(shouldUseCloudChat("Hello Chloe")).toBe(false);
+    expect(shouldUseCloudChat("I like coffee")).toBe(false);
+    expect(shouldUseCloudChat("")).toBe(false);
+  });
+  it("routes explicit advanced tutoring requests to cloud AI", () => {
+    expect(shouldUseCloudChat("Explain why this grammar is incorrect")).toBe(true);
+    expect(shouldUseCloudChat("Compare although and despite")).toBe(true);
+    expect(shouldUseCloudChat("Please correct my sentence")).toBe(true);
+  });
+  it("routes unusually long prompts to cloud AI", () => {
+    expect(shouldUseCloudChat("Please help me practice. ".repeat(8))).toBe(true);
   });
 });

@@ -7,6 +7,8 @@ let unlocked = false;
 let currentEngine = "none";
 let lastTtsError = "";
 let lastApiStatus = "not_checked";
+// Avoid repeatedly hitting Gemini after a provider-side 429; browser speech remains available.
+let cloudTtsCooldownUntil = 0;
 let micState = "idle";
 let muted = false;
 let speakingToken = 0;
@@ -273,6 +275,9 @@ export function pickVoice(locale: string, voices: SpeechSynthesisVoice[]): Speec
 }
 
 async function cloudTts(text: string, locale: string, rate: number): Promise<string | null> {
+  // Once Gemini returns 429, stop retrying each sentence/request during the cooldown.
+  // speak() will transparently use the browser's local speech engine instead.
+  if (Date.now() < cloudTtsCooldownUntil) return null;
   try {
     console.info("[LingoArena audio] TTS attempt", { engine: "cloud", locale: resolveLocale(locale), textLength: text.length });
     const response = await fetch("/api/tts", {
@@ -282,8 +287,17 @@ async function cloudTts(text: string, locale: string, rate: number): Promise<str
     lastApiStatus = String(response.status);
     if (!response.ok) {
       const detail = await response.text().catch(() => "");
-      setTtsDebug("cloud_tts_failed", `HTTP ${response.status}: ${detail.slice(0, 180)}`, String(response.status));
-      logAudio("cloud TTS response rejected", `HTTP ${response.status}`);
+      if (response.status === 429) {
+        const retryHeader = response.headers.get("retry-after");
+        const retrySeconds = Math.max(30, Math.min(300, Number(retryHeader) || 60));
+        cloudTtsCooldownUntil = Date.now() + retrySeconds * 1000;
+        // This is a provider quota/rate-limit event, not a total audio failure: browser TTS is the fallback.
+        logAudio("Gemini TTS rate limited; switching to browser speech synthesis", `cooldown=${retrySeconds}s`);
+        setTtsDebug("browser_speech_fallback", "", String(response.status));
+      } else {
+        setTtsDebug("cloud_tts_failed", `HTTP ${response.status}: ${detail.slice(0, 180)}`, String(response.status));
+        logAudio("cloud TTS response rejected", `HTTP ${response.status}`);
+      }
       return null;
     }
     const contentType = response.headers.get("content-type") || "";
@@ -433,7 +447,7 @@ function browserSpeak(text: string, locale: string, rate: number, token: number,
 
 export type SpeakOptions = { lang: string; accent?: string; rate?: number };
 type SpeakCallbacks = { onStart?: () => void; onEnd?: () => void };
-/** Cloud TTS first; speechSynthesis is the last-resort fallback. */
+/** Local-first TTS: browser speech is the default; cloud TTS is opt-in to protect prototype quota. */
 export function speak(text: string, options: SpeakOptions, callbacks?: SpeakCallbacks): boolean;
 export function speak(text: string, locale: string, rate?: number, callbacks?: SpeakCallbacks): boolean;
 export function speak(text: string, localeOrOptions: string | SpeakOptions, rateOrCallbacks: number | SpeakCallbacks = 1, legacyCallbacks?: SpeakCallbacks): boolean {
@@ -453,38 +467,25 @@ export function speak(text: string, localeOrOptions: string | SpeakOptions, rate
   const clean = text.trim();
   if (muted) { cb?.onEnd?.(); return true; }
   void (async () => {
-    // Ensure mobile Safari is not still in microphone capture mode before audio playback.
-    // The gesture-unlocked persistent HTMLAudioElement is reused for all cloud clips.
-    // Request one sentence at a time so the first spoken audio can begin sooner than a full-paragraph TTS call.
+    // Prototype default: never spend Gemini TTS quota for routine playback.
+    // Cloud TTS can be explicitly enabled in this browser for voice-quality testing.
+    let cloudEnabled = false;
+    try { cloudEnabled = localStorage.getItem("lingoarena-cloud-tts") === "enabled"; } catch { /* local storage may be blocked */ }
+    const onStartOnce = (() => { let started = false; return () => { if (!started) { started = true; cb?.onStart?.(); } }; })();
+    if (!cloudEnabled || !("speechSynthesis" in window)) {
+      browserSpeak(clean, locale, rate, token, { onStart: onStartOnce, onEnd: cb?.onEnd });
+      return;
+    }
+    // Optional cloud path for deliberate voice-quality tests only. Never retry each
+    // sentence after a 429; switch the rest of the utterance to browser speech.
     const chunks = clean.match(/[^.!?。！？]+[.!?。！？]*/g)?.map((part) => part.trim()).filter(Boolean) ?? [clean];
-    let started = false;
-    const onStartOnce = () => { if (!started) { started = true; cb?.onStart?.(); } };
-    // Fetch the next sentence while the current clip plays. Previously every
-    // sentence waited for its own network round-trip after the previous clip ended,
-    // creating a long silence between otherwise short spoken sentences.
-    let nextAudioPromise: Promise<string | null> | null = cloudTts(chunks[0]!, locale, rate);
     for (let index = 0; index < chunks.length; index++) {
-      const audio = await nextAudioPromise;
+      const audio = await cloudTts(chunks[index]!, locale, rate);
       if (token !== speakingToken) return;
-      if (!audio) {
-        // Once Gemini is rate-limited/unavailable, do not issue one more cloud request
-        // for every remaining sentence. Switch the remainder of this utterance to browser TTS.
-        console.info("[LingoArena audio] browser speech fallback for remaining sentence chunks; reason:", lastTtsError || "cloud TTS unavailable");
-        browserSpeak(chunks.slice(index).join(" "), locale, rate, token, { onStart: onStartOnce, onEnd: cb?.onEnd });
-        return;
-      }
-      // Only prefetch after the current cloud request succeeds. This prevents a failed
-      // Gemini request (especially HTTP 429) from triggering another quota-consuming call.
-      nextAudioPromise = index + 1 < chunks.length
-        ? cloudTts(chunks[index + 1]!, locale, rate)
-        : null;
+      if (!audio) { browserSpeak(chunks.slice(index).join(" "), locale, rate, token, { onStart: onStartOnce, onEnd: cb?.onEnd }); return; }
       const played = await playWithPersistentAudio(audio, token, { onStart: onStartOnce });
       if (token !== speakingToken) return;
-      if (!played) {
-        console.info("[LingoArena audio] browser speech fallback after cloud playback failure");
-        browserSpeak(chunks.slice(index).join(" "), locale, rate, token, { onStart: onStartOnce, onEnd: cb?.onEnd });
-        return;
-      }
+      if (!played) { browserSpeak(chunks.slice(index).join(" "), locale, rate, token, { onStart: onStartOnce, onEnd: cb?.onEnd }); return; }
     }
     if (token === speakingToken) { await sleep(300); if (token === speakingToken) cb?.onEnd?.(); }
   })();

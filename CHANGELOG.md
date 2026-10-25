@@ -59,3 +59,17 @@
 ## 2026-10-25 — Prefer cloud STT for desktop microphone input
 - Prefer MediaRecorder uploads to Gemini STT over native Web Speech on browsers that support recording.
 - Keep native recognition as a fallback and surface empty recordings explicitly.
+
+
+## 2026-10-25 — Gemini TTS 429 fallback
+- Treat Gemini TTS HTTP 429 as a provider rate-limit event rather than a fatal audio error in the global status banner.
+- Add a bounded 30–300 second client cooldown (default 60 seconds) to avoid repeated TTS requests while rate-limited.
+- During cooldown, shared speech playback falls back to browser speech synthesis; logs retain a diagnostic message.
+- This does not increase Gemini quota or fix STT; it prevents TTS rate limiting from unnecessarily interrupting supported playback.
+
+
+## 2026-10-25 — Local-first Vercel prototype build
+- Browser TTS is now the default; cloud TTS is opt-in via `lingoarena-cloud-tts=enabled` in localStorage.
+- Browser speech recognition is preferred to avoid Gemini STT usage on supported browsers; recorded-audio `/api/stt` remains fallback when Web Speech recognition is unavailable.
+- Free Talk routes greetings and ordinary short turns to the local phrasebook; explicit complex tutoring requests are routed to Gemini.
+- Added `LOCAL_FIRST_VERCEL_BUILD.md` with behavior, opt-in instructions, and deployment notes.

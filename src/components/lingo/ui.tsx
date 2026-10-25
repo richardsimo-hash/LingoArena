@@ -96,11 +96,11 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
   const listen = (onDone: (text: string) => void, onInterim?: (text: string) => void, continuous = true) => {
     const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
     const isIOS = /iPad|iPhone|iPod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    // Prefer recorded audio + our Gemini STT endpoint whenever available. Native
-    // Web Speech can appear to start/stop on desktop Chrome while returning no final
-    // transcript, which leaves every activity waiting with no answer to evaluate.
-    const canRecordForCloudStt = !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined";
-    const recognition = canRecordForCloudStt ? null : getRecognition();
+    // Local-first prototype policy: use the browser's recognition API when available,
+    // avoiding a Gemini STT request for every practice attempt. Browser recognition may
+    // itself use a browser/vendor service; this does not guarantee fully offline STT.
+    // Recorded audio + /api/stt remains a fallback for browsers without recognition.
+    const recognition = getRecognition();
     stopSpeaking();
     setError(null);
     lastRef.current = "";

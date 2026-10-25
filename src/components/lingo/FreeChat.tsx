@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Send, PhoneOff, Clock, Headphones, Mic, MicOff } from "lucide-react";
 import { PERSONAS, TARGETS } from "@/lib/lingo/content";
-import { chatReply, localChat } from "@/lib/lingo/chat.functions";
+import { chatReply, localChat, shouldUseCloudChat } from "@/lib/lingo/chat.functions";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { speak, stopSpeaking, unlockAudio, getAccent } from "@/lib/voice";
 import type { Lingo } from "@/lib/lingo/store";
@@ -100,7 +100,23 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
       rollingSummaryRef.current = older.slice(-1100);
     }
     let reply = "", correction = "";
-    try {
+    const latestUserText = [...history].reverse().find((message) => message.role === "user")?.content || "";
+    const useCloud = shouldUseCloudChat(latestUserText);
+    // The opening greeting and everyday short turns are local; Gemini is reserved for
+    // requests that explicitly need deeper explanation, correction, comparison, or analysis.
+    if (!useCloud) {
+      const local = localChat({
+        messages: history,
+        targetName: langName(s.target, "en"),
+        nativeName: langName(s.native, "en"),
+        persona: persona.id,
+        target: s.target,
+      });
+      reply = local.reply;
+      correction = local.correction;
+      setOffline(true);
+      setOfflineReason("Local-first mode: simple conversation handled without Gemini");
+    } else try {
       const estimatedInputTokens = Math.ceil(history.reduce((sum, message) => sum + message.content.length, 0) / 4);
       const r = await chatReply({
         messages: history.slice(-12).map(({ role, content }) => ({ role, content })),
