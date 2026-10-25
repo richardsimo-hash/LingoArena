@@ -20,18 +20,35 @@ export type LiveCaptureOptions = {
   onNoVoice?: () => void;
   /** Fired once when maxDurationMs is reached. */
   onMaxDuration?: () => void;
+  /** Input device to use; defaults to the one chosen on /test, else the system default. */
+  deviceId?: string;
+  /** Disable echo cancellation / noise suppression / auto gain (for diagnosing silent input). */
+  raw?: boolean;
+  /** Called with each buffer's RMS level (for meters). */
+  onLevel?: (rms: number) => void;
   silenceMs?: number;
   noVoiceTimeoutMs?: number;
   maxDurationMs?: number;
 };
 
 const TARGET_RATE = 16000;
+const MIC_KEY = "lingoarena-mic-device";
+export function getPreferredMicId(): string | undefined {
+  try { return localStorage.getItem(MIC_KEY) || undefined; } catch { return undefined; }
+}
+export function setPreferredMicId(id: string | null) {
+  try { if (id) localStorage.setItem(MIC_KEY, id); else localStorage.removeItem(MIC_KEY); } catch { /* storage may be disabled */ }
+}
 
 export async function startLiveCapture(options: LiveCaptureOptions = {}): Promise<LiveCapture> {
   const { silenceMs = 1300, noVoiceTimeoutMs = 12000, maxDurationMs = 30000 } = options;
   const AudioContextCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
   if (!AudioContextCtor || !navigator.mediaDevices?.getUserMedia) throw new Error("LIVE_CAPTURE_UNAVAILABLE");
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  const deviceId = options.deviceId ?? getPreferredMicId();
+  const processing = !options.raw;
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: processing, noiseSuppression: processing, autoGainControl: processing, ...(deviceId ? { deviceId: { exact: deviceId } } : {}) } })
+    // A remembered device may have been unplugged; fall back to the default input.
+    .catch((error) => deviceId ? navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: processing, noiseSuppression: processing, autoGainControl: processing } }) : Promise.reject(error));
   const context = new AudioContextCtor();
   if (context.state === "suspended") await context.resume().catch(() => undefined);
   const source = context.createMediaStreamSource(stream);
@@ -71,6 +88,7 @@ export async function startLiveCapture(options: LiveCaptureOptions = {}): Promis
     if (out.length) { chunks.push(out); totalLength += out.length; }
 
     const rms = Math.sqrt(sumSquares / Math.max(1, out.length));
+    options.onLevel?.(rms);
     buffers++; rmsSum += rms; rmsCount++; if (rms > peakRms) peakRms = rms;
     const elapsed = performance.now() - startedAt;
     if (elapsed < 400) { calibration.push(rms); noiseFloor = Math.max(0.003, calibration.reduce((a, b) => a + b, 0) / calibration.length); }

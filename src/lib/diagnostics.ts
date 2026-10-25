@@ -26,12 +26,12 @@ export function logDiagnostic(area: string, event: string, level: DiagnosticEven
   method(`[LingoArena diagnostic] ${area}.${event}`, entry.details || {});
   // Send warnings/errors plus all mic/stt events to Vercel runtime logs so failures can be
   // diagnosed remotely. Never audio or transcript text. Batched to keep function calls low.
-  if (level !== "info" || area === "mic" || area === "stt") queueUpload(entry);
+  if (level !== "info" || area === "mic" || area === "stt" || area === "test") queueUpload(entry);
 }
 
 let uploadQueue: DiagnosticEvent[] = [];
 let uploadTimer: number | null = null;
-function sessionId(): string {
+export function sessionId(): string {
   try {
     const key = "lingoarena-diagnostic-session";
     let id = sessionStorage.getItem(key);
@@ -44,7 +44,7 @@ function queueUpload(entry: DiagnosticEvent) {
   uploadQueue.push(entry);
   if (uploadTimer === null) uploadTimer = window.setTimeout(flushUploads, 1500);
 }
-function flushUploads() {
+export function flushUploads() {
   uploadTimer = null;
   const events = uploadQueue.splice(0, 20);
   if (!events.length) return;

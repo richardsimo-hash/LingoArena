@@ -651,7 +651,7 @@ export async function transcribeRecording(pcm: Float32Array, locale: string, all
   }
 }
 
-async function cloudTranscribe(blob: Blob, locale: string, localReason: string): Promise<string> {
+export async function cloudTranscribe(blob: Blob, locale: string, localReason: string): Promise<string> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     throw new Error(`LOCAL_STT_FAILED_OFFLINE: ${localReason}. Connect once to download the local speech model, then retry.`);
   }
