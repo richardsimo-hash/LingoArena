@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ButtonHTMLAttributes } from "react";
 import { Mic, MicOff, Volume2, VolumeX, Turtle, AudioLines } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
-import { getRecognition, speak, stopSpeaking, unlockAudio, isAudioUnlocked, isAudioMuted, setAudioMuted, transcribeAudio, resolveLocale, getAudioDebugState, setAudioMicState, installFirstGestureUnlock } from "@/lib/voice";
+import { getRecognition, speak, stopSpeaking, unlockAudio, isAudioUnlocked, isAudioMuted, setAudioMuted, transcribeRecording, resolveLocale, getAudioDebugState, setAudioMicState, installFirstGestureUnlock } from "@/lib/voice";
+import { isLocalWhisperReady, preloadLocalWhisper, transcribePcm } from "@/lib/localWhisper";
+import { startLiveCapture, type LiveCapture } from "@/lib/liveCapture";
 import { AudioDebugPanel } from "@/components/lingo/DebugPanel";
 import { logDiagnostic } from "@/lib/diagnostics";
 import { makeT } from "@/lib/lingo/i18n";
@@ -44,331 +45,176 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [supported, setSupported] = useState(true);
-  const recRef = useRef<any>(null);
   const lastRef = useRef("");
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const silenceTimerRef = useRef<number | null>(null);
-  const analyserFrameRef = useRef<number | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const analyserSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const captureContextRef = useRef<AudioContext | null>(null);
+  const recRef = useRef<any>(null);
   const callbackRef = useRef<{ onDone: (text: string) => void; onInterim?: (text: string) => void } | null>(null);
-  const suppressNextStopRef = useRef(false);
-  const suppressRecognitionEndRef = useRef(false);
   const recognitionActiveRef = useRef(false);
+  const sessionRef = useRef<{ finish: (reason: string) => void; cancel: () => void } | null>(null);
 
   useEffect(() => {
-    setSupported(!!getRecognition() || (typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined"));
+    setSupported(!!getRecognition() || (typeof navigator !== "undefined" && !!navigator.mediaDevices?.getUserMedia));
+    // Warm up the on-device model so the first answer is not delayed by the download.
+    preloadLocalWhisper(resolveLocale(locale));
     const releaseBeforePlayback = () => {
       setAudioMicState("releasing_before_playback");
-      const recorderWasActive = recorderRef.current?.state === "recording";
-      suppressNextStopRef.current = recorderWasActive;
-      suppressRecognitionEndRef.current = recognitionActiveRef.current;
-      try { recRef.current?.abort(); } catch { /* ignored */ }
-      try { if (recorderWasActive) recorderRef.current?.stop(); } catch { /* ignored */ }
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-      if (analyserFrameRef.current) cancelAnimationFrame(analyserFrameRef.current);
-      analyserFrameRef.current = null;
-      try { analyserSourceRef.current?.disconnect(); } catch { /* source may already be disconnected */ }
-      try { analyserRef.current?.disconnect(); } catch { /* analyser may already be disconnected */ }
-      analyserSourceRef.current = null; analyserRef.current = null;
-      if (captureContextRef.current && captureContextRef.current.state !== "closed") void captureContextRef.current.close().catch((error) => console.warn("[LingoArena STT] capture context close failed", error));
-      captureContextRef.current = null;
+      sessionRef.current?.cancel();
       setListening(false);
       setAudioMicState("released_for_playback");
       window.dispatchEvent(new Event("lingo-audio-mic-released"));
     };
-    const handleSttStatus = (event: Event) => {
-      const detail = (event as CustomEvent<{ status?: string; progress?: number }>).detail || {};
-      if (detail.status === "loading_model") setError("Preparing local speech recognition… first use may download a model.");
-      else if (detail.status === "preparing_audio") setError("Preparing your recording for on-device transcription…");
-      else if (detail.status === "transcribing") setError("Recognizing your speech on this device…");
-      else if (detail.status === "complete") setError(null);
-    };
     window.addEventListener("lingo-audio-will-play", releaseBeforePlayback);
-    window.addEventListener("lingo-stt-status", handleSttStatus);
     return () => {
       window.removeEventListener("lingo-audio-will-play", releaseBeforePlayback);
-      window.removeEventListener("lingo-stt-status", handleSttStatus);
-      try { recRef.current?.abort(); } catch { /* ignored */ }
-      try { recorderRef.current?.stop(); } catch { /* ignored */ }
-      streamRef.current?.getTracks().forEach((track) => track.stop());
-      if (silenceTimerRef.current) window.clearTimeout(silenceTimerRef.current);
-      if (analyserFrameRef.current) cancelAnimationFrame(analyserFrameRef.current);
-      try { analyserSourceRef.current?.disconnect(); } catch { /* source may already be disconnected */ }
-      try { analyserRef.current?.disconnect(); } catch { /* analyser may already be disconnected */ }
-      if (captureContextRef.current && captureContextRef.current.state !== "closed") void captureContextRef.current.close().catch(() => undefined);
+      sessionRef.current?.cancel();
     };
-  }, []);
+  }, [locale]);
 
+  /**
+   * One microphone session. Live text comes from Web Speech when the browser provides it, and
+   * otherwise from on-device Whisper re-transcribing the growing recording about once a second.
+   * The final answer prefers Web Speech text, then a full on-device Whisper pass, and only then
+   * the optional cloud fallback.
+   */
   const listen = (onDone: (text: string) => void, onInterim?: (text: string) => void, continuous = true) => {
-    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
-    const isIOS = /iPad|iPhone|iPod/i.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-    // Local-first prototype policy: use the browser's recognition API when available,
-    // avoiding a Gemini STT request for every practice attempt. Browser recognition may
-    // itself use a browser/vendor service; this does not guarantee fully offline STT.
-    // Recorded audio + /api/stt remains a fallback for browsers without recognition.
+    sessionRef.current?.cancel();
     const recognition = getRecognition();
+    if (!recognition && !navigator.mediaDevices?.getUserMedia) { setSupported(false); setError(t("noVoice")); return; }
     stopSpeaking();
     setError(null);
     setProcessing(false);
     lastRef.current = "";
     callbackRef.current = { onDone, onInterim };
-    if (recognition) {
-      recognition.lang = resolveLocale(locale); recognition.interimResults = true; recognition.continuous = continuous; recognition.maxAlternatives = 1;
-      let delivered = false;
-      // Keep a short-lived audio backup while using browser recognition. Some Chrome builds
-      // stop recognition without returning a transcript even though the user spoke. Only if
-      // that happens do we upload the captured audio to /api/stt, avoiding cloud STT on normal turns.
-      type BackupCapture = { recorder: MediaRecorder; stream: MediaStream; chunks: BlobPart[]; stopped: Promise<Blob> };
-      let backupPromise: Promise<BackupCapture | null> = Promise.resolve(null);
-      let backupCapture: BackupCapture | null = null;
-      let backupFinalized = false;
-      if (navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined") {
-        backupPromise = navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then((stream) => {
-          const preferredType = /iPad|iPhone|iPod/i.test(navigator.userAgent) ? "audio/mp4" : "audio/webm;codecs=opus";
-          const mimeType = typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported(preferredType) ? preferredType : undefined;
-          const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-          const chunks: BlobPart[] = [];
-          let resolveStopped!: (blob: Blob) => void;
-          const stopped = new Promise<Blob>((resolve) => { resolveStopped = resolve; });
-          recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
-          recorder.onstop = () => resolveStopped(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }));
-          recorder.onerror = () => resolveStopped(new Blob([], { type: recorder.mimeType || "audio/webm" }));
-          recorder.start(250);
-          backupCapture = { recorder, stream, chunks, stopped };
-          logDiagnostic("mic", "backup_capture_started", "info", { mimeType: recorder.mimeType || "audio/webm" });
-          return backupCapture;
-        }).catch((cause) => {
-          console.warn("[LingoArena STT] backup capture unavailable", cause);
-          return null;
-        });
+    const lang = resolveLocale(locale);
+    preloadLocalWhisper(lang);
+
+    let ended = false;
+    let cancelled = false;
+    let webText = "";
+    let whisperText = "";
+    let webSpeechActive = false;
+    let capture: LiveCapture | null = null;
+    let liveTimer: number | null = null;
+    let liveBusy = false;
+    let recognitionEnded: (() => void) | null = null;
+
+    const showInterim = () => {
+      const text = webText || whisperText;
+      if (!text) return;
+      lastRef.current = text;
+      setError(null);
+      callbackRef.current?.onInterim?.(text);
+    };
+    const deliver = (text: string) => {
+      lastRef.current = text;
+      setError(null);
+      callbackRef.current?.onInterim?.(text);
+      callbackRef.current?.onDone(text);
+    };
+    const runLiveWhisper = () => {
+      // Web Speech already streams text when it works; only spend CPU when it does not.
+      if (ended || liveBusy || !capture || webText || !capture.heardVoice() || !isLocalWhisperReady(lang)) return;
+      liveBusy = true;
+      const pcm = capture.samples();
+      const recent = pcm.length > 16000 * 28 ? pcm.subarray(pcm.length - 16000 * 28) : pcm;
+      transcribePcm(recent, lang)
+        .then((text) => { if (!ended && text && !webText) { whisperText = text; showInterim(); } })
+        .catch((cause) => logDiagnostic("stt", "live_whisper_failed", "warn", { error: cause instanceof Error ? cause.message : String(cause) }))
+        .finally(() => { liveBusy = false; });
+    };
+
+    const finish = async (reason: string) => {
+      if (ended) return;
+      ended = true;
+      if (liveTimer) window.clearInterval(liveTimer);
+      if (recognition && webSpeechActive) {
+        if (cancelled) { try { recognition.abort(); } catch { /* ignored */ } }
+        else {
+          // stop() (not abort()) lets Web Speech flush its final result before we read webText.
+          await new Promise<void>((resolve) => {
+            recognitionEnded = resolve;
+            window.setTimeout(resolve, 1500);
+            try { recognition.stop(); } catch { resolve(); }
+          });
+        }
       }
-      const finishBackup = async (shouldTranscribe: boolean) => {
-        if (backupFinalized) return;
-        backupFinalized = true;
-        const capture = backupCapture || await backupPromise;
-        if (!capture) return;
-        let blob: Blob;
-        try {
-          if (capture.recorder.state === "recording") capture.recorder.stop();
-          blob = await Promise.race([capture.stopped, new Promise<Blob>((resolve) => window.setTimeout(() => resolve(new Blob(capture.chunks, { type: capture.recorder.mimeType || "audio/webm" })), 1200))]);
-        } catch {
-          blob = new Blob(capture.chunks, { type: capture.recorder.mimeType || "audio/webm" });
-        } finally {
-          capture.stream.getTracks().forEach((track) => track.stop());
-        }
-        if (!shouldTranscribe) return;
-        logDiagnostic("mic", "backup_capture_stopped", blob.size ? "info" : "warn", { audioBytes: blob.size, mimeType: blob.type || "unknown", shouldTranscribe });
-        if (!blob.size) {
-          setError("No audio backup was captured. Please check microphone access and try again.");
-          return;
-        }
-        try {
-          setProcessing(true);
-          setError("Transcribing your recording… this can take a few seconds.");
-          setAudioMicState("cloud_stt_fallback");
-          logDiagnostic("mic", "backup_transcription_started", "info", { audioBytes: blob.size, mimeType: blob.type || "unknown", locale: resolveLocale(locale) });
-          const transcript = await transcribeAudio(blob, locale);
-          if (!transcript.trim()) throw new Error("STT_EMPTY");
-          lastRef.current = transcript.trim();
-          setError(null);
-          callbackRef.current?.onInterim?.(lastRef.current);
-          callbackRef.current?.onDone(lastRef.current);
-        } catch (cause) {
-          logDiagnostic("mic", "backup_transcription_failed", "error", { error: cause instanceof Error ? cause.message : String(cause) });
-          console.warn("[LingoArena STT] backup cloud transcription failed", cause);
-          setError(`I couldn't recognize that speech. Please try again or type your answer. (${cause instanceof Error ? cause.message : String(cause)})`);
-        } finally {
-          setProcessing(false);
-          setAudioMicState("idle");
-        }
-      };
-      const finish = () => {
-        setListening(false); recognitionActiveRef.current = false; setAudioMicState("idle");
-        if (suppressRecognitionEndRef.current) { suppressRecognitionEndRef.current = false; delivered = true; void finishBackup(false); return; }
-        if (delivered) return;
-        delivered = true;
-        if (lastRef.current.trim()) {
-          onDone(lastRef.current.trim());
-          void finishBackup(false);
-        } else {
-          // Do not immediately show "I didn't hear you": try transcribing the captured backup first.
-          setProcessing(true);
-          setError("I heard no browser transcript yet. Recovering your recording…");
-          void finishBackup(true).then(() => {
-            if (!lastRef.current.trim() && !backupCapture) setError(t("noSpeech"));
-          }).finally(() => setProcessing(false));
-        }
-      };
+      const pcm = capture?.stop() ?? new Float32Array(0);
+      const heardVoice = capture?.heardVoice() ?? false;
+      setListening(false); recognitionActiveRef.current = false; setAudioMicState("idle");
+      if (sessionRef.current === session) sessionRef.current = null;
+      if (cancelled) return;
+      logDiagnostic("mic", "listen_finished", "info", { reason, webTextLength: webText.length, whisperTextLength: whisperText.length, recordedMs: Math.round((pcm.length / 16000) * 1000), heardVoice });
+      if (webText.trim()) { deliver(webText.trim()); return; }
+      if (reason === "mic_blocked") { setError(t("micBlocked")); return; }
+      if (!heardVoice || pcm.length < 16000 * 0.3) { setError(t("noSpeech")); return; }
+      setProcessing(true);
+      try {
+        const text = await transcribeRecording(pcm, locale);
+        if (!text.trim()) throw new Error("STT_EMPTY");
+        deliver(text.trim());
+      } catch (cause) {
+        logDiagnostic("mic", "final_transcription_failed", "error", { error: cause instanceof Error ? cause.message : String(cause) });
+        if (whisperText) deliver(whisperText);
+        else setError(`I couldn't recognize that speech. Please try again or type your answer. (${cause instanceof Error ? cause.message : String(cause)})`);
+      } finally {
+        setProcessing(false);
+      }
+    };
+    const session = { finish: (reason: string) => void finish(reason), cancel: () => { cancelled = true; void finish("cancelled"); } };
+    sessionRef.current = session;
+    setListening(true);
+
+    if (recognition) {
+      recognition.lang = lang; recognition.interimResults = true; recognition.continuous = continuous; recognition.maxAlternatives = 1;
       recognition.onresult = (event: any) => {
-        logDiagnostic("mic", "browser_recognition_result", "info", { resultCount: event.results?.length || 0, isFinal: Boolean(event.results?.[event.results.length - 1]?.isFinal) });
         let text = "";
         for (let i = 0; i < event.results.length; i++) text += `${event.results[i][0].transcript} `;
-        lastRef.current = text.trim();
-        if (lastRef.current) setError(null);
-        onInterim?.(lastRef.current);
+        webText = text.trim();
+        showInterim();
       };
       recognition.onerror = (event: any) => {
         logDiagnostic("mic", "browser_recognition_error", "warn", { error: event.error || "unknown", message: event.message || "" });
-        if (event.error === "aborted") return;
-        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
-          setError(t("micBlocked"));
-          void finishBackup(false);
-          setListening(false); recognitionActiveRef.current = false; setAudioMicState("idle");
-          return;
-        }
-        finish();
+        // Errors such as "network" (Brave, Arc, offline) are fine: on-device Whisper keeps going.
+        if ((event.error === "not-allowed" || event.error === "service-not-allowed") && !capture) void finish("mic_blocked");
       };
-      recognition.onend = finish;
-      setListening(true); recognitionActiveRef.current = true; setAudioMicState("speech_recognition"); recRef.current = recognition;
-      try { recognition.start(); logDiagnostic("mic", "browser_recognition_started", "info", { locale: resolveLocale(locale), backupRecorderAvailable: Boolean(backupCapture || backupPromise) }); } catch (cause) { setListening(false); setError(t("speechErr")); void finishBackup(false); logDiagnostic("mic", "browser_recognition_start_failed", "error", { error: cause instanceof Error ? cause.message : String(cause) }); console.warn("[LingoArena STT] Web Speech start failed", cause); }
-      return;
+      recognition.onend = () => {
+        webSpeechActive = false; recognitionActiveRef.current = false;
+        recognitionEnded?.();
+        if (ended) return;
+        if (webText.trim() || !capture) { void finish("web_speech_end"); return; }
+        // Web Speech gave up without text; keep recording and let Whisper + silence detection finish the turn.
+        logDiagnostic("mic", "web_speech_ended_without_text", "warn", {});
+        setAudioMicState("local_whisper");
+      };
+      recRef.current = recognition;
+      try {
+        recognition.start();
+        webSpeechActive = true; recognitionActiveRef.current = true;
+        setAudioMicState("speech_recognition");
+      } catch (cause) {
+        logDiagnostic("mic", "browser_recognition_start_failed", "warn", { error: cause instanceof Error ? cause.message : String(cause) });
+      }
     }
 
-    // iOS Safari and browsers without SpeechRecognition: record and use the server STT fallback.
-    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === "undefined") {
-      setSupported(false); setError(t("noVoice")); return;
-    }
-    void (async () => {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-        streamRef.current = stream;
-        const preferredType = /iPad|iPhone|iPod/i.test(navigator.userAgent) ? "audio/mp4" : "audio/webm;codecs=opus";
-        const mimeType = typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported(preferredType) ? preferredType : undefined;
-        const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-        recorderRef.current = recorder; chunksRef.current = [];
-        recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
-        recorder.onerror = (event) => { logDiagnostic("mic", "media_recorder_error", "error", { error: (event as Event).type }); setError(t("speechErr")); };
-        recorder.onstop = async () => {
-          logDiagnostic("mic", "media_recorder_stopped", "info", { chunks: chunksRef.current.length, audioBytes: chunksRef.current.reduce((sum, chunk) => sum + chunk.size, 0), mimeType: recorder.mimeType || "unknown" });
-          if (silenceTimerRef.current) window.clearTimeout(silenceTimerRef.current);
-          setListening(false);
-          stream.getTracks().forEach((track) => track.stop());
-          streamRef.current = null;
-          if (analyserFrameRef.current) cancelAnimationFrame(analyserFrameRef.current);
-          analyserFrameRef.current = null;
-          try { analyserSourceRef.current?.disconnect(); } catch { /* already disconnected */ }
-          try { analyserRef.current?.disconnect(); } catch { /* already disconnected */ }
-          analyserSourceRef.current = null; analyserRef.current = null;
-          if (captureContextRef.current && captureContextRef.current.state !== "closed") void captureContextRef.current.close().catch((error) => console.warn("[LingoArena STT] capture context close failed", error));
-          captureContextRef.current = null;
-          setAudioMicState("idle");
-          if (suppressNextStopRef.current) { suppressNextStopRef.current = false; return; }
-          const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
-          if (!blob.size) { setError("No audio was captured. Check microphone permission and try again."); return; }
-          try {
-            setProcessing(true);
-            setError("Recording captured. Transcribing…");
-            const transcript = await transcribeAudio(blob, locale);
-            setError(null);
-            lastRef.current = transcript;
-            callbackRef.current?.onInterim?.(transcript);
-            callbackRef.current?.onDone(transcript);
-          } catch (cause) {
-            logDiagnostic("mic", "server_transcription_failed", "error", { error: cause instanceof Error ? cause.message : String(cause) });
-            console.warn("[LingoArena STT] server transcription unavailable", cause);
-            // Keep browser recognition as a fallback on desktop as well as iOS.
-            const fallback = getRecognition();
-            if (fallback) {
-              toast.warning("Cloud transcription failed. Using browser speech recognition; playback may be affected until the mic stops.");
-              try {
-                fallback.lang = resolveLocale(locale); fallback.interimResults = true; fallback.continuous = continuous; fallback.maxAlternatives = 1;
-                let delivered = false;
-                fallback.onresult = (event: any) => {
-                  let text = ""; for (let i = 0; i < event.results.length; i++) text += `${event.results[i][0].transcript} `;
-                  lastRef.current = text.trim(); callbackRef.current?.onInterim?.(lastRef.current);
-                };
-                const finishFallback = () => {
-                  setListening(false); recognitionActiveRef.current = false; setAudioMicState("idle");
-                  if (!delivered && lastRef.current) { delivered = true; callbackRef.current?.onDone(lastRef.current); }
-                };
-                fallback.onerror = (event: any) => { if (event.error !== "aborted") setError(`Browser recognition fallback failed: ${event.error}`); finishFallback(); };
-                fallback.onend = finishFallback;
-                recRef.current = fallback; recognitionActiveRef.current = true; setAudioMicState("speech_recognition_fallback"); setListening(true);
-                fallback.start();
-              } catch (fallbackError) {
-                setError(`STT unavailable: ${cause instanceof Error ? cause.message : String(cause)}; browser fallback failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
-              }
-            } else setError(`Speech transcription unavailable: ${cause instanceof Error ? cause.message : String(cause)}. Check API configuration or type your answer.`);
-          } finally {
-            setProcessing(false);
-          }
-        };
-        recorder.start(250);
-        logDiagnostic("mic", "media_recorder_started", "info", { mimeType: recorder.mimeType || "browser_default", locale: resolveLocale(locale), audioTracks: stream.getAudioTracks().length });
-        setListening(true); setAudioMicState("recording");
-        silenceTimerRef.current = window.setTimeout(() => {
-          if (recorder.state === "recording") { setError(t("noSpeech")); recorder.stop(); }
-        }, 15000);
-        // Voice activity detection: stop after ~1.4s of low volume. The mic button also stops it.
-        const AudioContextCtor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-        if (AudioContextCtor) {
-          const audioContext = new AudioContextCtor(); captureContextRef.current = audioContext;
-          const analyser = audioContext.createAnalyser(); analyser.fftSize = 512; analyserRef.current = analyser;
-          const source = audioContext.createMediaStreamSource(stream); analyserSourceRef.current = source; source.connect(analyser);
-          const data = new Uint8Array(analyser.fftSize);
-          let heardVoice = false;
-          let silentSince = 0;
-          const recordingStartedAt = performance.now();
-          const calibration: number[] = [];
-          let noiseFloor = 0.012;
-          const check = () => {
-            if (recorder.state !== "recording") { void audioContext.close(); return; }
-            if (!heardVoice && performance.now() - recordingStartedAt > 12000) {
-              setError(t("noSpeech")); recorder.stop(); void audioContext.close(); return;
-            }
-            analyser.getByteTimeDomainData(data);
-            let sum = 0; for (const value of data) { const normalized = (value - 128) / 128; sum += normalized * normalized; }
-            const rms = Math.sqrt(sum / data.length);
-            const elapsed = performance.now() - recordingStartedAt;
-            if (elapsed < 500) { calibration.push(rms); noiseFloor = Math.max(0.006, calibration.reduce((a, b) => a + b, 0) / Math.max(1, calibration.length)); }
-            const threshold = Math.max(0.025, noiseFloor * 2.6 + 0.012);
-            if (rms > threshold) { heardVoice = true; silentSince = 0; }
-            else if (heardVoice) { if (!silentSince) silentSince = performance.now(); if (performance.now() - silentSince > 1250 && performance.now() - recordingStartedAt > 400) { recorder.stop(); void audioContext.close(); return; } }
-            if (elapsed > 30000) { recorder.stop(); void audioContext.close(); return; }
-            analyserFrameRef.current = requestAnimationFrame(check);
-          };
-          analyserFrameRef.current = requestAnimationFrame(check);
-        }
-      } catch (cause) {
-        console.warn("[LingoArena STT] microphone capture failed", cause);
-        setListening(false); setError(t("micBlocked"));
-      }
-    })();
+    startLiveCapture({
+      // Hands-free turns (continuous=false) end on a pause; continuous turns end when the user taps stop.
+      onSilenceAfterVoice: () => { if (!continuous || !webSpeechActive) void finish("silence"); },
+      onNoVoice: () => void finish("no_voice"),
+      onMaxDuration: () => void finish("max_duration"),
+    }).then((started) => {
+      if (ended) { started.stop(); return; }
+      capture = started;
+      if (!webSpeechActive) setAudioMicState("local_whisper");
+      liveTimer = window.setInterval(runLiveWhisper, 900);
+      logDiagnostic("mic", "live_capture_started", "info", { locale: lang, webSpeech: webSpeechActive });
+    }).catch((cause) => {
+      logDiagnostic("mic", "live_capture_failed", "warn", { error: cause instanceof Error ? cause.message : String(cause) });
+      if (!webSpeechActive) void finish("mic_blocked");
+    });
   };
 
   const stop = () => {
-    // IMPORTANT: stop() finalizes recognition and emits its final result; abort() discards it.
-    // All mic-driven experiences use this shared hook, so aborting here silently lost answers
-    // in Grammar Battle, Speech Arena, Free Talk, and Learn Path.
-    if (recognitionActiveRef.current && recRef.current) {
-      try {
-        recRef.current.stop();
-        return; // onend calls finish(), which delivers the final transcript exactly once.
-      } catch (cause) {
-        console.warn("[LingoArena STT] graceful recognition stop failed", cause);
-      }
-    }
-
-    // MediaRecorder's final dataavailable event must be allowed to run before tracks are released.
-    if (recorderRef.current?.state === "recording") {
-      try {
-        recorderRef.current.stop();
-        return; // recorder.onstop uploads the completed blob and invokes onDone.
-      } catch (cause) {
-        console.warn("[LingoArena STT] recorder stop failed", cause);
-      }
-    }
-
-    streamRef.current?.getTracks().forEach((track) => track.stop());
-    streamRef.current = null;
-    setListening(false);
-    recognitionActiveRef.current = false;
-    setAudioMicState("idle");
+    // finish() stops Web Speech gracefully (final result kept) and transcribes the recording.
+    sessionRef.current?.finish("user_stop");
   };
   return { listening, processing, error, supported, listen, stop };
 }

@@ -1,5 +1,6 @@
 import { createDiagnosticId, getDiagnosticEvents, logDiagnostic } from "@/lib/diagnostics";
-import { transcribeLocally } from "@/lib/localWhisper";
+import { transcribeLocally, transcribePcm } from "@/lib/localWhisper";
+import { encodeWav } from "@/lib/liveCapture";
 
 /** Shared mobile-safe audio/TTS manager. All playback reuses one persistent HTMLAudioElement. */
 let ctx: AudioContext | null = null;
@@ -627,11 +628,32 @@ export async function transcribeAudio(blob: Blob, locale: string): Promise<strin
   } catch (localError) {
     const localReason = localError instanceof Error ? `${localError.name}: ${localError.message}` : String(localError);
     logDiagnostic("stt", "local_transcription_failed_cloud_fallback", "warn", { elapsedMs: Math.round(performance.now() - localStartedAt), error: localReason });
-    if (typeof navigator !== "undefined" && navigator.onLine === false) {
-      throw new Error(`LOCAL_STT_FAILED_OFFLINE: ${localReason}. Connect once to download the local speech model, then retry.`);
-    }
+    return cloudTranscribe(blob, locale, localReason);
   }
+}
 
+/** Final transcript for raw 16 kHz PCM from liveCapture: on-device Whisper first, then cloud (WAV). */
+export async function transcribeRecording(pcm: Float32Array, locale: string): Promise<string> {
+  if (!pcm.length) throw new Error("STT_AUDIO_EMPTY");
+  const localStartedAt = performance.now();
+  try {
+    logDiagnostic("stt", "local_transcription_started", "info", { samples: pcm.length, locale: resolveLocale(locale) });
+    const localText = await transcribePcm(pcm, resolveLocale(locale));
+    if (!localText.trim()) throw new Error("LOCAL_STT_EMPTY_TRANSCRIPT");
+    logDiagnostic("stt", "local_transcription_succeeded", "info", { elapsedMs: Math.round(performance.now() - localStartedAt), transcriptLength: localText.length });
+    setAudioApiStatus("local-whisper:ok");
+    return localText.trim();
+  } catch (localError) {
+    const localReason = localError instanceof Error ? `${localError.name}: ${localError.message}` : String(localError);
+    logDiagnostic("stt", "local_transcription_failed_cloud_fallback", "warn", { elapsedMs: Math.round(performance.now() - localStartedAt), error: localReason });
+    return cloudTranscribe(encodeWav(pcm), locale, localReason);
+  }
+}
+
+async function cloudTranscribe(blob: Blob, locale: string, localReason: string): Promise<string> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    throw new Error(`LOCAL_STT_FAILED_OFFLINE: ${localReason}. Connect once to download the local speech model, then retry.`);
+  }
   // Optional recovery path. Normal transcription is performed on-device; this is not required
   // for local inference, but provides compatibility if the model cannot load on a device.
   const MAX_STT_AUDIO_BYTES = 1_400_000;
@@ -644,17 +666,19 @@ export async function transcribeAudio(blob: Blob, locale: string): Promise<strin
   });
   const diagnosticId = createDiagnosticId("stt");
   const startedAt = performance.now();
-  logDiagnostic("stt", "cloud_fallback_started", "warn", { diagnosticId, mimeType: blob.type || "audio/webm", audioBytes: blob.size, locale: resolveLocale(locale) });
+  const mimeType = (blob.type || "audio/webm").split(";")[0]!;
+  logDiagnostic("stt", "cloud_fallback_started", "warn", { diagnosticId, mimeType, audioBytes: blob.size, locale: resolveLocale(locale) });
   let response: Response;
   try {
     response = await fetch("/api/stt", {
       method: "POST", headers: { "Content-Type": "application/json", "x-lingo-request-id": diagnosticId },
-      body: JSON.stringify({ audioBase64, mimeType: blob.type || "audio/webm", locale: resolveLocale(locale), diagnosticId }),
+      body: JSON.stringify({ audioBase64, mimeType, locale: resolveLocale(locale), diagnosticId }),
+      signal: AbortSignal.timeout(35_000),
     });
   } catch (error) {
     const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
     logDiagnostic("stt", "cloud_fallback_fetch_failed", "error", { diagnosticId, error: detail, elapsedMs: Math.round(performance.now() - startedAt) });
-    throw new Error(`LOCAL_AND_CLOUD_STT_FAILED: local=${localErrorSummary(localStartedAt)}; cloud=${detail}`);
+    throw new Error(`STT_LOCAL_AND_CLOUD_FAILED [diagnosticId=${diagnosticId}]: local=${localReason}; cloud=${detail}`);
   }
   setAudioApiStatus(`stt:${response.status}`);
   const responseText = await response.text().catch(() => "");
@@ -664,14 +688,13 @@ export async function transcribeAudio(blob: Blob, locale: string): Promise<strin
   if (!response.ok) {
     const reason = [result.error, result.details, result.message].filter(Boolean).join(": ").slice(0, 500);
     logDiagnostic("stt", "cloud_fallback_failed", "error", { diagnosticId, httpStatus: response.status, vercelId, elapsedMs: Math.round(performance.now() - startedAt), reason });
-    throw new Error(`STT_LOCAL_AND_CLOUD_FAILED [diagnosticId=${diagnosticId}; vercelId=${vercelId}]: ${reason || `HTTP ${response.status}`}`);
+    throw new Error(`STT_LOCAL_AND_CLOUD_FAILED [diagnosticId=${diagnosticId}; vercelId=${vercelId}]: local=${localReason}; cloud=${reason || `HTTP ${response.status}`}`);
   }
   if (!result.text?.trim()) throw new Error("STT_CLOUD_FALLBACK_EMPTY");
   logDiagnostic("stt", "cloud_fallback_succeeded", "info", { diagnosticId, elapsedMs: Math.round(performance.now() - startedAt), transcriptLength: result.text.trim().length });
   return result.text.trim();
 }
 
-function localErrorSummary(startedAt: number) { return `failed after ${Math.round(performance.now() - startedAt)}ms`; }
 
 // iOS Safari may suspend audio after tab switches, screen lock, or an incoming call.
 if (typeof window !== "undefined") {

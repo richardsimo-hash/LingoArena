@@ -37,32 +37,48 @@ export default async function handler(req: RequestLike, res: ResponseLike) {
   if (!bytes.length || bytes.length > 3 * 1024 * 1024) return res.status(413).json({ ok: false, error: "audio_size_invalid", provider: "none", status: 413 });
   const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
   if (geminiApiKey) {
-    serverLog(requestId, "provider_request_started", { provider: "gemini", model: process.env.GEMINI_STT_MODEL || "gemini-3.8-flash" });
+    // Gemini returns 503 "high demand" or stalls during spikes. Try the configured model, then
+    // lighter fallbacks, each with its own timeout, all inside the 30s function budget.
+    const primaryModel = process.env.GEMINI_STT_MODEL || "gemini-3.8-flash";
+    const fallbackModels = (process.env.GEMINI_STT_FALLBACK_MODELS || "gemini-flash-latest,gemini-flash-lite-latest").split(",").map((m) => m.trim()).filter(Boolean);
+    const models = [...new Set([primaryModel, ...fallbackModels])];
+    const deadline = startedAt + 27_000;
     let providerFailure = "gemini_stt_unavailable";
     let providerStatus = 502;
-    try {
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_STT_MODEL || "gemini-3.8-flash")}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
-        method: "POST", signal: AbortSignal.timeout(25_000), headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: `Transcribe exactly what is spoken in language/locale ${locale}. Return only the transcription, with no commentary.` }, { inlineData: { mimeType, data: audioBase64 } }] }], generationConfig: { temperature: 0, maxOutputTokens: 128 } }),
-      });
-      serverLog(requestId, "provider_response", { provider: "gemini", httpStatus: response.status, elapsedMs: Date.now() - startedAt });
-      if (!response.ok) {
-        const providerBody = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 240);
-        providerStatus = response.status === 429 ? 429 : response.status >= 500 ? 503 : 502;
-        providerFailure = `gemini_stt_http_${response.status}${providerBody ? `: ${providerBody}` : ""}`;
-        throw new Error(providerFailure);
+    const failures: string[] = [];
+    for (let attempt = 0; attempt < models.length; attempt++) {
+      const model = models[attempt]!;
+      const remaining = deadline - Date.now();
+      if (remaining < 2_000) break;
+      // Leave the later models some time instead of letting the first one eat the whole budget.
+      const attemptTimeout = attempt === models.length - 1 ? remaining : Math.min(remaining, attempt === 0 ? 12_000 : 8_000);
+      serverLog(requestId, "provider_request_started", { provider: "gemini", model, attempt, timeoutMs: attemptTimeout });
+      try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+          method: "POST", signal: AbortSignal.timeout(attemptTimeout), headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts: [{ text: `Transcribe exactly what is spoken in language/locale ${locale}. Return only the transcription, with no commentary.` }, { inlineData: { mimeType, data: audioBase64 } }] }], generationConfig: { temperature: 0, maxOutputTokens: 128 } }),
+        });
+        serverLog(requestId, "provider_response", { provider: "gemini", model, httpStatus: response.status, elapsedMs: Date.now() - startedAt });
+        if (!response.ok) {
+          const providerBody = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 240);
+          providerStatus = response.status === 429 ? 429 : response.status >= 500 ? 503 : 502;
+          throw new Error(`gemini_stt_http_${response.status}${providerBody ? `: ${providerBody}` : ""}`);
+        }
+        const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+        const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim();
+        if (!text) throw new Error("gemini_stt_empty");
+        serverLog(requestId, "transcription_succeeded", { provider: "gemini", model, attempt, transcriptLength: text.length, elapsedMs: Date.now() - startedAt });
+        return res.status(200).json({ text, provider: "gemini", model, diagnosticId: requestId });
+      } catch (error) {
+        const message = error instanceof Error ? (error.name === "TimeoutError" ? `timeout after ${attemptTimeout}ms` : error.message) : String(error);
+        if (error instanceof Error && error.name === "TimeoutError") providerStatus = 504;
+        failures.push(`${model}: ${message.slice(0, 160)}`);
+        serverLog(requestId, "provider_failed", { provider: "gemini", model, attempt, error: message.slice(0, 300), elapsedMs: Date.now() - startedAt }, "warn");
+        // A 400/403/404 on the primary usually means a bad model name or key; still try fallbacks.
       }
-      const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-      const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim();
-      if (!text) throw new Error("gemini_stt_empty");
-      serverLog(requestId, "transcription_succeeded", { provider: "gemini", transcriptLength: text.length, elapsedMs: Date.now() - startedAt });
-      return res.status(200).json({ text, provider: "gemini", diagnosticId: requestId });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      serverLog(requestId, "provider_failed", { provider: "gemini", error: message.slice(0, 300), elapsedMs: Date.now() - startedAt }, "warn");
-      if (!providerFailure || providerFailure === "gemini_stt_unavailable") providerFailure = message.slice(0, 260);
     }
-    return res.status(providerStatus).json({ ok: false, error: providerStatus === 429 ? "gemini_stt_rate_limited" : "gemini_stt_unavailable", details: providerFailure, provider: "gemini", status: providerStatus, diagnosticId: requestId, fallback: "browser_speech_recognition" });
+    providerFailure = failures.join(" | ").slice(0, 480) || providerFailure;
+    return res.status(providerStatus === 504 ? 503 : providerStatus).json({ ok: false, error: providerStatus === 429 ? "gemini_stt_rate_limited" : "gemini_stt_unavailable", details: providerFailure, provider: "gemini", status: providerStatus, diagnosticId: requestId, fallback: "browser_speech_recognition" });
   }
   serverLog(requestId, "provider_key_missing", { expectedVariables: ["GEMINI_API_KEY", "GEMINI_KEY"] }, "error");
   return res.status(503).json({ ok: false, error: "gemini_missing_key", provider: "gemini", status: 503, diagnosticId: requestId, fallback: "browser_speech_recognition" });

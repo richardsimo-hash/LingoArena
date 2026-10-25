@@ -1,15 +1,22 @@
 /**
  * Local-first speech-to-text powered by Transformers.js + Whisper in the browser.
- * The inference runs on-device. The model is downloaded from Hugging Face on first use
- * and can be cached by the browser; first download requires a network connection.
+ * Inference runs on-device in a Web Worker (see whisper.worker.ts). The model is downloaded
+ * from Hugging Face on first use and cached by the browser; first download requires a network.
  */
 export type LocalTranscriptionProgress = { status: string; progress?: number; file?: string };
-type Pipeline = (task: string, model: string, options?: Record<string, unknown>) => Promise<(...args: any[]) => Promise<any>>;
-type TransformersModule = { pipeline: Pipeline; env?: Record<string, any> };
 
-let modulePromise: Promise<TransformersModule> | null = null;
-let pipelinePromise: Promise<(...args: any[]) => Promise<any>> | null = null;
-let activeModel = "";
+type WorkerMessage =
+  | { type: "progress"; model: string; progress: LocalTranscriptionProgress }
+  | { type: "ready"; model: string }
+  | { type: "load_error"; model: string; message: string }
+  | { type: "result"; id: number; text: string }
+  | { type: "error"; id: number; message: string };
+
+let worker: Worker | null = null;
+let nextId = 1;
+const pending = new Map<number, { model: string; resolve: (text: string) => void; reject: (error: Error) => void }>();
+const readyModels = new Set<string>();
+const loadingModels = new Set<string>();
 let progressListener: ((progress: LocalTranscriptionProgress) => void) | null = null;
 
 function notify(progress: LocalTranscriptionProgress) {
@@ -17,48 +24,65 @@ function notify(progress: LocalTranscriptionProgress) {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("lingo-local-stt-progress", { detail: progress }));
 }
 
-async function loadTransformers(): Promise<TransformersModule> {
-  if (!modulePromise) {
-    modulePromise = (async () => {
-      // Load only when local transcription is actually needed, keeping initial app bundles small.
-      // The package is version-pinned to avoid unexpected CDN changes.
-      const importFromUrl = new Function("url", "return import(url)") as (url: string) => Promise<TransformersModule>;
-      const module = await importFromUrl("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2");
-      if (!module?.pipeline) throw new Error("LOCAL_STT_LIBRARY_UNAVAILABLE");
-      if (module.env) {
-        module.env.allowRemoteModels = true;
-        module.env.allowLocalModels = true;
-      }
-      return module;
-    })().catch((error) => {
-      modulePromise = null;
-      throw error;
-    });
-  }
-  return modulePromise;
+function getWorker(): Worker {
+  if (worker) return worker;
+  if (typeof Worker === "undefined") throw new Error("LOCAL_STT_WORKER_UNAVAILABLE");
+  worker = new Worker(new URL("./whisper.worker.ts", import.meta.url), { type: "module" });
+  worker.onmessage = (event: MessageEvent<WorkerMessage>) => {
+    const message = event.data;
+    if (message.type === "progress") notify(message.progress);
+    else if (message.type === "ready") { loadingModels.delete(message.model); readyModels.add(message.model); }
+    else if (message.type === "load_error") loadingModels.delete(message.model);
+    else {
+      const request = pending.get(message.id);
+      if (!request) return;
+      pending.delete(message.id);
+      if (message.type === "result") { readyModels.add(request.model); request.resolve(message.text.replace(/\[[^\]]*\]|\([^)]*\)|\*[^*]*\*/g, " ").replace(/\s+/g, " ").trim()); }
+      else request.reject(new Error(message.message));
+    }
+  };
+  worker.onerror = (event) => {
+    const error = new Error(`LOCAL_STT_WORKER_FAILED: ${event.message || "worker error"}`);
+    for (const request of pending.values()) request.reject(error);
+    pending.clear(); loadingModels.clear();
+    worker?.terminate(); worker = null;
+  };
+  return worker;
 }
 
+let activeModel = "";
 function chooseModel(locale: string) {
   // Use the smaller English-only model for English lessons; multilingual Whisper otherwise.
   return /^en(?:-|$)/i.test(locale) ? "onnx-community/whisper-tiny.en" : "onnx-community/whisper-tiny";
 }
 
-async function getPipeline(locale: string) {
+/** Starts downloading/compiling the model without transcribing; safe to call repeatedly. */
+export function preloadLocalWhisper(locale: string) {
   const model = chooseModel(locale);
-  if (pipelinePromise && activeModel === model) return pipelinePromise;
+  if (readyModels.has(model) || loadingModels.has(model)) return;
+  try {
+    loadingModels.add(model);
+    getWorker().postMessage({ type: "load", model });
+  } catch {
+    loadingModels.delete(model);
+  }
+}
+
+export function isLocalWhisperReady(locale: string) { return readyModels.has(chooseModel(locale)); }
+
+/** Transcribes 16 kHz mono PCM. Resolves with "" when nothing intelligible was said. */
+export function transcribePcm(audio: Float32Array, locale: string): Promise<string> {
+  const model = chooseModel(locale);
   activeModel = model;
-  pipelinePromise = (async () => {
-    notify({ status: "loading_model", progress: 0 });
-    const transformers = await loadTransformers();
-    return transformers.pipeline("automatic-speech-recognition", model, {
-      progress_callback: (event: LocalTranscriptionProgress) => notify(event),
-    });
-  })().catch((error) => {
-    pipelinePromise = null;
-    activeModel = "";
-    throw error;
+  return new Promise<string>((resolve, reject) => {
+    let target: Worker;
+    try { target = getWorker(); } catch (error) { reject(error instanceof Error ? error : new Error(String(error))); return; }
+    const id = nextId++;
+    pending.set(id, { model, resolve, reject });
+    // Copy so the caller's buffer stays usable, then transfer the copy to the worker.
+    const copy = audio.slice();
+    target.postMessage({ type: "transcribe", id, model, audio: copy }, [copy.buffer]);
   });
-  return pipelinePromise;
 }
 
 async function blobTo16kMono(blob: Blob): Promise<Float32Array> {
@@ -94,15 +118,9 @@ export async function transcribeLocally(blob: Blob, locale: string, onProgress?:
   try {
     notify({ status: "preparing_audio", progress: 0 });
     const audio = await blobTo16kMono(blob);
-    const transcriber = await getPipeline(locale);
+    if (!isLocalWhisperReady(locale)) notify({ status: "loading_model", progress: 0 });
     notify({ status: "transcribing", progress: 100 });
-    const result = await transcriber(audio, {
-      sampling_rate: 16000,
-      chunk_length_s: 20,
-      stride_length_s: 3,
-      return_timestamps: false,
-    });
-    const text = typeof result === "string" ? result : typeof result?.text === "string" ? result.text : "";
+    const text = await transcribePcm(audio, locale);
     if (!text.trim()) throw new Error("LOCAL_STT_EMPTY_TRANSCRIPT");
     notify({ status: "complete", progress: 100 });
     return text.trim();
@@ -115,5 +133,5 @@ export async function transcribeLocally(blob: Blob, locale: string, onProgress?:
 }
 
 export function getLocalWhisperStatus() {
-  return { loaded: Boolean(pipelinePromise && activeModel), model: activeModel || null };
+  return { loaded: readyModels.size > 0, model: activeModel || null };
 }
