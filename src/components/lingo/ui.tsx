@@ -108,13 +108,80 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
     if (recognition) {
       recognition.lang = resolveLocale(locale); recognition.interimResults = true; recognition.continuous = continuous; recognition.maxAlternatives = 1;
       let delivered = false;
+      // Keep a short-lived audio backup while using browser recognition. Some Chrome builds
+      // stop recognition without returning a transcript even though the user spoke. Only if
+      // that happens do we upload the captured audio to /api/stt, avoiding cloud STT on normal turns.
+      type BackupCapture = { recorder: MediaRecorder; stream: MediaStream; chunks: BlobPart[]; stopped: Promise<Blob> };
+      let backupPromise: Promise<BackupCapture | null> = Promise.resolve(null);
+      let backupCapture: BackupCapture | null = null;
+      let backupFinalized = false;
+      if (navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== "undefined") {
+        backupPromise = navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } }).then((stream) => {
+          const preferredType = /iPad|iPhone|iPod/i.test(navigator.userAgent) ? "audio/mp4" : "audio/webm;codecs=opus";
+          const mimeType = typeof MediaRecorder.isTypeSupported === "function" && MediaRecorder.isTypeSupported(preferredType) ? preferredType : undefined;
+          const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+          const chunks: BlobPart[] = [];
+          let resolveStopped!: (blob: Blob) => void;
+          const stopped = new Promise<Blob>((resolve) => { resolveStopped = resolve; });
+          recorder.ondataavailable = (event) => { if (event.data.size) chunks.push(event.data); };
+          recorder.onstop = () => resolveStopped(new Blob(chunks, { type: recorder.mimeType || "audio/webm" }));
+          recorder.onerror = () => resolveStopped(new Blob([], { type: recorder.mimeType || "audio/webm" }));
+          recorder.start(250);
+          backupCapture = { recorder, stream, chunks, stopped };
+          return backupCapture;
+        }).catch((cause) => {
+          console.warn("[LingoArena STT] backup capture unavailable", cause);
+          return null;
+        });
+      }
+      const finishBackup = async (shouldTranscribe: boolean) => {
+        if (backupFinalized) return;
+        backupFinalized = true;
+        const capture = backupCapture || await backupPromise;
+        if (!capture) return;
+        let blob: Blob;
+        try {
+          if (capture.recorder.state === "recording") capture.recorder.stop();
+          blob = await Promise.race([capture.stopped, new Promise<Blob>((resolve) => window.setTimeout(() => resolve(new Blob(capture.chunks, { type: capture.recorder.mimeType || "audio/webm" })), 1200))]);
+        } catch {
+          blob = new Blob(capture.chunks, { type: capture.recorder.mimeType || "audio/webm" });
+        } finally {
+          capture.stream.getTracks().forEach((track) => track.stop());
+        }
+        if (!shouldTranscribe) return;
+        if (!blob.size) {
+          setError("No audio backup was captured. Please check microphone access and try again.");
+          return;
+        }
+        try {
+          setAudioMicState("cloud_stt_fallback");
+          const transcript = await transcribeAudio(blob, locale);
+          if (!transcript.trim()) throw new Error("STT_EMPTY");
+          lastRef.current = transcript.trim();
+          setError(null);
+          callbackRef.current?.onInterim?.(lastRef.current);
+          callbackRef.current?.onDone(lastRef.current);
+        } catch (cause) {
+          console.warn("[LingoArena STT] backup cloud transcription failed", cause);
+          setError(`I couldn't recognize that speech. Please try again or type your answer. (${cause instanceof Error ? cause.message : String(cause)})`);
+        } finally {
+          setAudioMicState("idle");
+        }
+      };
       const finish = () => {
         setListening(false); recognitionActiveRef.current = false; setAudioMicState("idle");
-        if (suppressRecognitionEndRef.current) { suppressRecognitionEndRef.current = false; delivered = true; return; }
+        if (suppressRecognitionEndRef.current) { suppressRecognitionEndRef.current = false; delivered = true; void finishBackup(false); return; }
         if (delivered) return;
         delivered = true;
-        if (lastRef.current.trim()) onDone(lastRef.current.trim());
-        else setError(t("noSpeech"));
+        if (lastRef.current.trim()) {
+          onDone(lastRef.current.trim());
+          void finishBackup(false);
+        } else {
+          // Do not immediately show "I didn't hear you": try transcribing the captured backup first.
+          void finishBackup(true).then(() => {
+            if (!lastRef.current.trim() && !backupCapture) setError(t("noSpeech"));
+          });
+        }
       };
       recognition.onresult = (event: any) => {
         let text = "";
@@ -130,7 +197,7 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
       };
       recognition.onend = finish;
       setListening(true); recognitionActiveRef.current = true; setAudioMicState("speech_recognition"); recRef.current = recognition;
-      try { recognition.start(); } catch (cause) { setListening(false); setError(t("speechErr")); console.warn("[LingoArena STT] Web Speech start failed", cause); }
+      try { recognition.start(); } catch (cause) { setListening(false); setError(t("speechErr")); void finishBackup(false); console.warn("[LingoArena STT] Web Speech start failed", cause); }
       return;
     }
 

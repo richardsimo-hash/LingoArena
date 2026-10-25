@@ -73,3 +73,10 @@
 - Browser speech recognition is preferred to avoid Gemini STT usage on supported browsers; recorded-audio `/api/stt` remains fallback when Web Speech recognition is unavailable.
 - Free Talk routes greetings and ordinary short turns to the local phrasebook; explicit complex tutoring requests are routed to Gemini.
 - Added `LOCAL_FIRST_VERCEL_BUILD.md` with behavior, opt-in instructions, and deployment notes.
+
+
+## 2026-10-25 — STT no-speech recovery
+- Added a temporary MediaRecorder backup while browser speech recognition runs.
+- If browser recognition ends without text, the app attempts one Gemini `/api/stt` transcription of the captured audio before showing a no-speech error.
+- Normal browser-recognized turns discard the backup and do not call cloud STT, preserving the local-first usage policy.
+- Improved recovery when browser recognition fails to start by stopping the backup recorder.
