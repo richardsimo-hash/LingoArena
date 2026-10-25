@@ -34,6 +34,39 @@ export type LiveCaptureOptions = {
 };
 
 const TARGET_RATE = 16000;
+
+/**
+ * Voice-activity detector fed one RMS value per audio buffer. The noise floor is the quietest
+ * level seen in the last ~2 s (not the opening average), so speaking straight away cannot raise
+ * the bar above the speaker's own voice. A couple of loud buffers are required to count as
+ * speech, which ignores single clicks.
+ */
+export function createVoiceDetector({ silenceMs = 1300, historySize = 24 } = {}) {
+  const history: number[] = [];
+  let noiseFloor = 0.008;
+  let loudBuffers = 0;
+  let heardVoice = false;
+  let silentSince = 0;
+  return {
+    push(rms: number, now: number) {
+      history.push(rms);
+      if (history.length > historySize) history.shift();
+      noiseFloor = Math.min(0.02, Math.max(0.003, Math.min(...history)));
+      const threshold = Math.min(0.06, Math.max(0.012, noiseFloor * 3 + 0.004));
+      // Hysteresis: once speaking, only a clearly quieter level counts as a pause.
+      const release = Math.max(0.008, noiseFloor * 1.8 + 0.003);
+      if (rms > threshold) {
+        loudBuffers++;
+        if (loudBuffers >= 2) heardVoice = true;
+        silentSince = 0;
+      } else if (heardVoice && rms > release) silentSince = 0;
+      else if (heardVoice && !silentSince) silentSince = now;
+      return { heardVoice, silenceAfterVoice: heardVoice && silentSince > 0 && now - silentSince > silenceMs, threshold };
+    },
+    get noiseFloor() { return noiseFloor; },
+    get heardVoice() { return heardVoice; },
+  };
+}
 const MIC_KEY = "lingoarena-mic-device";
 /** Virtual inputs that are silent unless their app is in a call or routing audio. */
 export const VIRTUAL_MIC_PATTERN = /virtual|teams audio|zoomaudio|zoom audio|blackhole|loopback|soundflower|krisp|vb-audio|voicemeeter|camo|obs/i;
@@ -77,11 +110,8 @@ export async function startLiveCapture(options: LiveCaptureOptions = {}): Promis
   let chunks: Float32Array[] = [];
   let totalLength = 0;
   let carry = 0; // fractional read position carried across buffers for resampling
-  let heardVoice = false;
-  let silentSince = 0;
-  let noiseFloor = 0.008;
+  const detector = createVoiceDetector({ silenceMs });
   let peakRms = 0, rmsSum = 0, rmsCount = 0, buffers = 0;
-  const calibration: number[] = [];
   const startedAt = performance.now();
   let stopped = false;
   let firedSilence = false, firedNoVoice = false, firedMax = false;
@@ -109,15 +139,9 @@ export async function startLiveCapture(options: LiveCaptureOptions = {}): Promis
     options.onLevel?.(rms);
     buffers++; rmsSum += rms; rmsCount++; if (rms > peakRms) peakRms = rms;
     const elapsed = performance.now() - startedAt;
-    if (elapsed < 400) { calibration.push(rms); noiseFloor = Math.max(0.003, calibration.reduce((a, b) => a + b, 0) / calibration.length); }
-    // Auto-gain and noise suppression keep speech fairly quiet, so stay sensitive.
-    const threshold = Math.max(0.01, noiseFloor * 2.2 + 0.004);
-    if (rms > threshold) { heardVoice = true; silentSince = 0; }
-    else if (heardVoice) {
-      if (!silentSince) silentSince = performance.now();
-      if (!firedSilence && performance.now() - silentSince > silenceMs) { firedSilence = true; options.onSilenceAfterVoice?.(); }
-    }
-    if (!heardVoice && !firedNoVoice && elapsed > noVoiceTimeoutMs) { firedNoVoice = true; options.onNoVoice?.(); }
+    const vad = detector.push(rms, performance.now());
+    if (vad.silenceAfterVoice && !firedSilence) { firedSilence = true; options.onSilenceAfterVoice?.(); }
+    if (!detector.heardVoice && !firedNoVoice && elapsed > noVoiceTimeoutMs) { firedNoVoice = true; options.onNoVoice?.(); }
     if (!firedMax && elapsed > maxDurationMs) { firedMax = true; options.onMaxDuration?.(); }
   };
   source.connect(processor);
@@ -150,15 +174,15 @@ export async function startLiveCapture(options: LiveCaptureOptions = {}): Promis
       buffers,
       peakRms: Math.round(peakRms * 10000) / 10000,
       avgRms: Math.round((rmsSum / Math.max(1, rmsCount)) * 10000) / 10000,
-      noiseFloor: Math.round(noiseFloor * 10000) / 10000,
-      heardVoice,
+      noiseFloor: Math.round(detector.noiseFloor * 10000) / 10000,
+      heardVoice: detector.heardVoice,
     };
   };
 
   return {
     samples,
     stats,
-    heardVoice: () => heardVoice,
+    heardVoice: () => detector.heardVoice,
     switchedFromVirtual: Boolean(switchedFrom),
     durationMs: () => (totalLength / TARGET_RATE) * 1000,
     stop: () => {

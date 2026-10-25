@@ -48,7 +48,7 @@ export default function handler(req: RequestLike, res: ResponseLike) {
     const rawDetails = item.details && typeof item.details === "object" && !Array.isArray(item.details)
       ? item.details as Record<string, unknown> : {};
     const details: Record<string, string | number | boolean | null> = {};
-    for (const [key, value] of Object.entries(rawDetails).slice(0, 20)) {
+    for (const [key, value] of Object.entries(rawDetails).slice(0, 32)) {
       if (/audioBase64|transcript|api.?key|secret|authorization|cookie|prompt|body|token|email/i.test(key)) continue;
       if (typeof value === "string") details[key.slice(0, 40)] = value.replace(/[\r\n\t]/g, " ").slice(0, 240);
       else if (typeof value === "number" || typeof value === "boolean" || value === null) details[key.slice(0, 40)] = value;
