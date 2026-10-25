@@ -23,8 +23,8 @@ async function loadTransformers(): Promise<TransformersModule> {
       // Load only when local transcription is actually needed, keeping initial app bundles small.
       // The package is version-pinned to avoid unexpected CDN changes.
       const importFromUrl = new Function("url", "return import(url)") as (url: string) => Promise<TransformersModule>;
-      const module = await importFromUrl("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2");
-      if (!module?.pipeline) throw new Error("LOCAL_STT_LIBRARY_UNAVAILABLE");
+      const module = await importFromUrl("https://esm.sh/@huggingface/transformers@3.7.2");
+      if (!module?.pipeline) throw new Error("LOCAL_STT_LIBRARY_UNAVAILABLE: module loaded without pipeline export");
       if (module.env) {
         module.env.allowRemoteModels = true;
         module.env.allowLocalModels = true;
@@ -96,10 +96,7 @@ export async function transcribeLocally(blob: Blob, locale: string, onProgress?:
     const audio = await blobTo16kMono(blob);
     const transcriber = await getPipeline(locale);
     notify({ status: "transcribing", progress: 100 });
-    const language = locale.split("-")[0].toLowerCase();
     const result = await transcriber(audio, {
-      language,
-      task: "transcribe",
       sampling_rate: 16000,
       chunk_length_s: 20,
       stride_length_s: 3,
