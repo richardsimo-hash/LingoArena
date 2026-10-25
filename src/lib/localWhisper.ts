@@ -23,7 +23,7 @@ async function loadTransformers(): Promise<TransformersModule> {
       // Load only when local transcription is actually needed, keeping initial app bundles small.
       // The package is version-pinned to avoid unexpected CDN changes.
       const importFromUrl = new Function("url", "return import(url)") as (url: string) => Promise<TransformersModule>;
-      const module = await importFromUrl("https://esm.sh/@huggingface/transformers@3.7.2?bundle");
+      const module = await importFromUrl("https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.7.2");
       if (!module?.pipeline) throw new Error("LOCAL_STT_LIBRARY_UNAVAILABLE");
       if (module.env) {
         module.env.allowRemoteModels = true;
@@ -32,8 +32,7 @@ async function loadTransformers(): Promise<TransformersModule> {
       return module;
     })().catch((error) => {
       modulePromise = null;
-      const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-      throw new Error(`LOCAL_STT_LIBRARY_LOAD_FAILED (${detail})`);
+      throw error;
     });
   }
   return modulePromise;

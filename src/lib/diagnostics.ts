@@ -24,6 +24,33 @@ export function logDiagnostic(area: string, event: string, level: DiagnosticEven
   window.dispatchEvent(new CustomEvent("lingo-diagnostic-event", { detail: entry }));
   const method = level === "error" ? console.error : level === "warn" ? console.warn : console.info;
   method(`[LingoArena diagnostic] ${area}.${event}`, entry.details || {});
+  // Send only warnings/errors to Vercel runtime logs. Never send audio or transcript text.
+  // Throttle client reports so a noisy failure cannot flood the serverless function.
+  if (level !== "info") {
+    try {
+      const now = Date.now();
+      const key = "lingoarena-diagnostic-last-upload";
+      const last = Number(sessionStorage.getItem(key) || 0);
+      if (now - last >= 1000) {
+        sessionStorage.setItem(key, String(now));
+        void fetch("/api/diagnostics", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          cache: "no-store",
+          keepalive: true,
+          body: JSON.stringify({
+            at: entry.at,
+            level: entry.level,
+            area: entry.area,
+            event: entry.event,
+            details: entry.details,
+            path: window.location.pathname,
+            userAgent: window.navigator.userAgent.slice(0, 240),
+          }),
+        }).catch(() => undefined);
+      }
+    } catch { /* diagnostics must never break app behavior */ }
+  }
 }
 export function getDiagnosticEvents(): DiagnosticEvent[] {
   if (typeof window === "undefined") return [];
