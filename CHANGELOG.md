@@ -87,3 +87,10 @@
 - Added an explicit empty-recording check and a 1.4 MB audio payload guard to reduce serverless request-body failures.
 - STT route now returns structured provider failure details and preserves Gemini 429 as a rate-limit response.
 - These changes improve diagnosis and error handling; they do not by themselves prove the deployed 500 root cause.
+
+## STT function invocation failure follow-up
+- Made `api/stt.ts` self-contained to remove its shared rate-limit module import as a possible startup dependency.
+- Explicitly imported `Buffer` from `node:buffer` and hardened body/audio validation.
+- Added bounded, key-redacted diagnostics and structured network/provider/internal error responses.
+- Added `STT_FUNCTION_INVOCATION_FAILED.md` explaining how to confirm the remaining cause from Vercel Function logs.
+- Not deployed or live-tested; the platform-generated invocation failure still requires Vercel stack traces if it persists.
