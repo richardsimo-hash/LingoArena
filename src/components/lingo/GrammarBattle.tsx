@@ -33,9 +33,9 @@ export function GrammarBattle({ lingo, reward, fail }: { lingo: Lingo; reward: (
   // The bot reads the request aloud at the start of every round.
   useEffect(() => { speak(target, { lang: tg.locale, rate: s.rate }); return () => stopSpeaking(); }, [c.id, s.target]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const submit = () => {
-    if (!input.trim() || done) return;
-    const r = dictationCheck(target, input, s.target);
+  const submit = (answer: string = input) => {
+    if (!answer.trim() || done) return;
+    const r = dictationCheck(target, answer, s.target);
     setResult(r);
     if (r.exact) {
       const xp = reveal ? 5 : attempts === 0 ? 15 : 20;
@@ -73,9 +73,10 @@ export function GrammarBattle({ lingo, reward, fail }: { lingo: Lingo; reward: (
         <div className="flex gap-2">
           <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} disabled={!!done}
             placeholder={t("typeIn", { lang: langName(s.target, s.native) })} className="flex-1 rounded-2xl border-2 border-border bg-card p-4 text-lg font-bold outline-none focus:border-primary" />
-          {speech.supported && <MicButton listening={speech.listening} disabled={!!done} onClick={() => (speech.listening ? speech.stop() : speech.listen(setInput, setInput))} />}
+          {speech.supported && <MicButton listening={speech.listening} disabled={!!done} onClick={() => (speech.listening ? speech.stop() : speech.listen((recognized) => { setInput(recognized); submit(recognized); }, setInput, false))} />}
         </div>
         {speech.error && <p className="text-sm font-bold text-destructive">{speech.error}</p>}
+        {speech.listening && <p className="text-xs font-bold text-primary">Listening… speak the full sentence, then pause.</p>}
         {!speech.supported && <p className="text-xs text-muted-foreground">{t("noVoice")}</p>}
         {!done && <Btn className="w-full" onClick={submit} disabled={!input.trim()}><Send className="mr-2 inline h-4 w-4" />{attempts ? t("resubmit") : t("submit")}</Btn>}
       </div>

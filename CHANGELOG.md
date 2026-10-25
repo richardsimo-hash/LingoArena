@@ -40,3 +40,8 @@
 - Removed the fixed 60-turn lite-mode cutoff and introduced configurable 60k estimated token budget.
 - Added per-request OpenAI → Gemini failover, transient retry, response caching, concise spoken output, and improved local fallback.
 - Added explicit hands-free conversation state machine and adaptive RMS noise-floor calibration.
+
+## Grammar Battle microphone fix
+- Use one-shot speech recognition in Grammar Battle so final transcripts resolve after the learner pauses.
+- Automatically evaluate the final recognized transcript; retain interim text in the answer field.
+- Display a listening hint during microphone capture.
