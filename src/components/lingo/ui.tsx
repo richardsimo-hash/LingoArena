@@ -81,9 +81,18 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
       setAudioMicState("released_for_playback");
       window.dispatchEvent(new Event("lingo-audio-mic-released"));
     };
+    const handleSttStatus = (event: Event) => {
+      const detail = (event as CustomEvent<{ status?: string; progress?: number }>).detail || {};
+      if (detail.status === "loading_model") setError("Preparing local speech recognition… first use may download a model.");
+      else if (detail.status === "preparing_audio") setError("Preparing your recording for on-device transcription…");
+      else if (detail.status === "transcribing") setError("Recognizing your speech on this device…");
+      else if (detail.status === "complete") setError(null);
+    };
     window.addEventListener("lingo-audio-will-play", releaseBeforePlayback);
+    window.addEventListener("lingo-stt-status", handleSttStatus);
     return () => {
       window.removeEventListener("lingo-audio-will-play", releaseBeforePlayback);
+      window.removeEventListener("lingo-stt-status", handleSttStatus);
       try { recRef.current?.abort(); } catch { /* ignored */ }
       try { recorderRef.current?.stop(); } catch { /* ignored */ }
       streamRef.current?.getTracks().forEach((track) => track.stop());
