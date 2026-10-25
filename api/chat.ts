@@ -151,7 +151,7 @@ export default async function handler(req: { method?: string; body?: Body; heade
     topic ? `Current topic: ${topic}. Stay on it while it is going well. If answers get very short or the topic has had about 6 exchanges, smoothly bridge to a fresh everyday topic${previousTopics.length ? ` (avoid: ${previousTopics.join(", ")})` : ""}.` : "Pick common, everyday topics and change topic smoothly when one runs dry.",
     `If the learner seems lost, simplify your language. If they use ${native}, gently answer in ${target} with simpler words. Recast errors naturally inside your reply; do not overcorrect.`,
     data.stream
-      ? `Output the spoken reply as plain text. Only if the learner made a clear mistake, add one final line starting with "§" containing a very brief correction in ${native}, e.g. "§ Say 'I went' instead of 'I goed'."`
+      ? `Output the spoken reply as plain text, and naturally reuse the correct form in it (e.g. learner says "I eated", you say "Oh, you ate pizza!"). Then, whenever the learner's last message has a grammar, word-choice or word-order mistake, you MUST add one final line starting with "§" with a very brief correction written in ${native}, e.g. "§ Se dice 'I ate', no 'I eated'." Skip the § line only when their message was correct.`
       : `Return ONLY JSON: {"reply":"spoken response","correction":"brief optional correction or empty string"}.`,
     summary ? `Earlier context summary: ${summary}` : "",
   ].filter(Boolean).join(" ");
