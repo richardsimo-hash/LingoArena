@@ -88,9 +88,16 @@
 - STT route now returns structured provider failure details and preserves Gemini 429 as a rate-limit response.
 - These changes improve diagnosis and error handling; they do not by themselves prove the deployed 500 root cause.
 
-## STT function invocation failure follow-up
-- Made `api/stt.ts` self-contained to remove its shared rate-limit module import as a possible startup dependency.
-- Explicitly imported `Buffer` from `node:buffer` and hardened body/audio validation.
-- Added bounded, key-redacted diagnostics and structured network/provider/internal error responses.
-- Added `STT_FUNCTION_INVOCATION_FAILED.md` explaining how to confirm the remaining cause from Vercel Function logs.
-- Not deployed or live-tested; the platform-generated invocation failure still requires Vercel stack traces if it persists.
+## 2026-10-25 — Cross-layer STT diagnostics
+- Added bounded privacy-conscious browser diagnostic events persisted in localStorage and included in `/debug` → Copy report.
+- Added a per-request diagnostic ID sent as `x-lingo-request-id`; capture HTTP status, response content type, Vercel request ID, latency and sanitized error details.
+- Added structured JSON server logs for STT invocation and provider stages; do not log audio payloads, API keys, or recognized transcript text.
+- Removed `/api/stt`'s import of `../server/rateLimit` and inlined a small best-effort limiter to reduce a possible function module-resolution failure before invocation.
+- Added `DIAGNOSTICS_LOGGING_GUIDE.md` with steps to correlate browser report and Vercel function logs.
+
+## 2026-10-25 — STT timeout feedback and latency mitigation
+- Added a visible transcription/recovery state across Speech Arena, Grammar Battle, Free Talk, and Learn Path so the microphone no longer appears to do nothing while `/api/stt` is processing.
+- Prevented the microphone button from starting a second capture while transcription is in progress.
+- Increased the Gemini STT fetch timeout to 25 seconds within the configured 30-second Vercel function duration and constrained transcription output to 128 tokens with deterministic generation settings.
+- Kept diagnostic request IDs and structured client/server logging.
+- Note: the provider timeout may still occur; if it does, correlated diagnostic logs should identify whether the request reached Gemini and how long it took.

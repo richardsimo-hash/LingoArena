@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getAudioDebugState, installFirstGestureUnlock, testBrowserVoice, testCloudVoice, testSound } from "@/lib/voice";
+import { getDiagnosticEvents, clearDiagnosticEvents, logDiagnostic } from "@/lib/diagnostics";
 
 type TestResult = { status: "pass" | "fail" | "running"; detail: string; latencyMs?: number };
 type Health = { providers?: Record<string, string>; models?: Record<string, string>; runtime?: Record<string, string>; configured?: Record<string, boolean>; checkedAt?: string };
@@ -11,6 +12,7 @@ export function AudioDebugPanel({ compact = false, locale = "en-US", installGest
   const [micLevel, setMicLevel] = useState(0);
   const [micRunning, setMicRunning] = useState(false);
   const [copyMessage, setCopyMessage] = useState("");
+  const [diagnosticEvents, setDiagnosticEvents] = useState(getDiagnosticEvents());
   const streamRef = useRef<MediaStream | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
   const rafRef = useRef<number>(0);
@@ -18,18 +20,20 @@ export function AudioDebugPanel({ compact = false, locale = "en-US", installGest
 
   useEffect(() => {
     const removeGesture = installGesture ? installFirstGestureUnlock() : () => undefined;
-    const refresh = () => setState(getAudioDebugState());
+    const refresh = () => { setState(getAudioDebugState()); setDiagnosticEvents(getDiagnosticEvents()); };
+    const onDiagnostic = () => setDiagnosticEvents(getDiagnosticEvents());
     const onLog = (event: Event) => {
       const line = String((event as CustomEvent<string>).detail || "");
       logsRef.current = [...logsRef.current, line].slice(-20);
       refresh();
     };
     window.addEventListener("lingo-audio-state", refresh);
+    window.addEventListener("lingo-diagnostic-event", onDiagnostic);
     window.addEventListener("lingo-audio-log", onLog);
     const timer = window.setInterval(refresh, 900);
     void refreshHealth();
     return () => {
-      removeGesture(); window.removeEventListener("lingo-audio-state", refresh); window.removeEventListener("lingo-audio-log", onLog); window.clearInterval(timer);
+      removeGesture(); window.removeEventListener("lingo-diagnostic-event", onDiagnostic); window.removeEventListener("lingo-audio-state", refresh); window.removeEventListener("lingo-audio-log", onLog); window.clearInterval(timer);
       stopMic();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -105,9 +109,10 @@ export function AudioDebugPanel({ compact = false, locale = "en-US", installGest
 
   async function copyReport() {
     const report = {
-      capturedAt: new Date().toISOString(), audio: getAudioDebugState(), health,
+      capturedAt: new Date().toISOString(), app: "LingoArena", diagnosticsVersion: 1, audio: getAudioDebugState(), health,
       tests: results, userAgent: navigator.userAgent, url: location.href,
-      last20Logs: logsRef.current.slice(-20),
+      last20Logs: logsRef.current.slice(-20), diagnosticEvents: getDiagnosticEvents().slice(-80),
+      privacy: "No audio bytes, API keys, or transcript text are included in diagnostic events.",
     };
     try { await navigator.clipboard.writeText(JSON.stringify(report, null, 2)); setCopyMessage("Report copied"); }
     catch { setCopyMessage(JSON.stringify(report, null, 2)); }
@@ -124,6 +129,7 @@ export function AudioDebugPanel({ compact = false, locale = "en-US", installGest
       <button className={buttonClass} onClick={() => void runTest("chat", testChat)}>Test chat</button>
       <button className={buttonClass} onClick={() => void runTest("microphone", startMic)}>{micRunning ? "Stop microphone test" : "Test microphone"}</button>
       <button className={buttonClass} onClick={() => void copyReport()}>Copy report</button>
+      <button className={buttonClass} onClick={() => { clearDiagnosticEvents(); setDiagnosticEvents([]); logDiagnostic("diagnostics", "log_cleared"); }}>Clear logs</button>
     </div>
     {micRunning && <div className="space-y-1"><div className="text-xs font-bold">Live input level: {Math.round(micLevel * 100)}%</div><div className="h-3 overflow-hidden rounded-full bg-muted"><div className="h-full bg-emerald-500 transition-[width]" style={{ width: `${micLevel * 100}%` }} /></div></div>}
     <div className="space-y-1 rounded-xl bg-muted/50 p-3">
@@ -140,6 +146,7 @@ export function AudioDebugPanel({ compact = false, locale = "en-US", installGest
       {health?.models && <div className="mt-1 break-words">Models: {Object.entries(health.models).map(([key, value]) => `${key}=${value}`).join(" · ")}</div>}
       {health?.runtime && <div className="mt-1">Runtime: {JSON.stringify(health.runtime)}</div>}
     </div>
+    <div className="rounded-xl border border-border p-3"><div className="mb-1 font-extrabold">Recent diagnostic events ({diagnosticEvents.length})</div><pre className="max-h-56 overflow-auto whitespace-pre-wrap break-words text-[10px]">{diagnosticEvents.slice(-30).map((event) => JSON.stringify(event)).join("\n") || "No diagnostic events yet"}</pre><p className="mt-2 text-[10px] text-muted-foreground">Logs contain request IDs, status codes, timing, MIME type and sizes. They intentionally exclude audio payloads, API keys and recognized transcript text.</p></div>
     <div className="space-y-2">{Object.entries(results).map(([key, result]) => <div key={key} className="rounded-lg border border-border p-2"><div className={`font-extrabold ${statusClass(result)}`}>{key}: {result.status.toUpperCase()}{result.latencyMs !== undefined ? ` · ${result.latencyMs}ms` : ""}</div><div className="break-words whitespace-pre-wrap">{result.detail}</div></div>)}</div>
     <div className="rounded-xl bg-muted/50 p-3"><div className="mb-1 font-extrabold">Last 20 audio logs</div><pre className="max-h-40 overflow-auto whitespace-pre-wrap break-words text-[10px]">{(state.logs || []).join("\n") || "No audio logs yet"}</pre></div>
     {copyMessage && <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border p-2">{copyMessage}</pre>}

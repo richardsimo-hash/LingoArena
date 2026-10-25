@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { getRecognition, speak, stopSpeaking, unlockAudio, isAudioUnlocked, isAudioMuted, setAudioMuted, transcribeAudio, resolveLocale, getAudioDebugState, setAudioMicState, installFirstGestureUnlock } from "@/lib/voice";
 import { AudioDebugPanel } from "@/components/lingo/DebugPanel";
+import { logDiagnostic } from "@/lib/diagnostics";
 import { makeT } from "@/lib/lingo/i18n";
 import type { NativeLang } from "@/lib/lingo/content";
 
@@ -40,6 +41,7 @@ export function SpeakButtons({ text, locale, rate, native = "en" }: { text: stri
 export function useSpeech(locale: string, native: NativeLang = "en") {
   const t = makeT(native);
   const [listening, setListening] = useState(false);
+  const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [supported, setSupported] = useState(true);
   const recRef = useRef<any>(null);
@@ -103,6 +105,7 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
     const recognition = getRecognition();
     stopSpeaking();
     setError(null);
+    setProcessing(false);
     lastRef.current = "";
     callbackRef.current = { onDone, onInterim };
     if (recognition) {
@@ -128,6 +131,7 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
           recorder.onerror = () => resolveStopped(new Blob([], { type: recorder.mimeType || "audio/webm" }));
           recorder.start(250);
           backupCapture = { recorder, stream, chunks, stopped };
+          logDiagnostic("mic", "backup_capture_started", "info", { mimeType: recorder.mimeType || "audio/webm" });
           return backupCapture;
         }).catch((cause) => {
           console.warn("[LingoArena STT] backup capture unavailable", cause);
@@ -149,12 +153,16 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
           capture.stream.getTracks().forEach((track) => track.stop());
         }
         if (!shouldTranscribe) return;
+        logDiagnostic("mic", "backup_capture_stopped", blob.size ? "info" : "warn", { audioBytes: blob.size, mimeType: blob.type || "unknown", shouldTranscribe });
         if (!blob.size) {
           setError("No audio backup was captured. Please check microphone access and try again.");
           return;
         }
         try {
+          setProcessing(true);
+          setError("Transcribing your recording… this can take a few seconds.");
           setAudioMicState("cloud_stt_fallback");
+          logDiagnostic("mic", "backup_transcription_started", "info", { audioBytes: blob.size, mimeType: blob.type || "unknown", locale: resolveLocale(locale) });
           const transcript = await transcribeAudio(blob, locale);
           if (!transcript.trim()) throw new Error("STT_EMPTY");
           lastRef.current = transcript.trim();
@@ -162,9 +170,11 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
           callbackRef.current?.onInterim?.(lastRef.current);
           callbackRef.current?.onDone(lastRef.current);
         } catch (cause) {
+          logDiagnostic("mic", "backup_transcription_failed", "error", { error: cause instanceof Error ? cause.message : String(cause) });
           console.warn("[LingoArena STT] backup cloud transcription failed", cause);
           setError(`I couldn't recognize that speech. Please try again or type your answer. (${cause instanceof Error ? cause.message : String(cause)})`);
         } finally {
+          setProcessing(false);
           setAudioMicState("idle");
         }
       };
@@ -178,12 +188,15 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
           void finishBackup(false);
         } else {
           // Do not immediately show "I didn't hear you": try transcribing the captured backup first.
+          setProcessing(true);
+          setError("I heard no browser transcript yet. Recovering your recording…");
           void finishBackup(true).then(() => {
             if (!lastRef.current.trim() && !backupCapture) setError(t("noSpeech"));
-          });
+          }).finally(() => setProcessing(false));
         }
       };
       recognition.onresult = (event: any) => {
+        logDiagnostic("mic", "browser_recognition_result", "info", { resultCount: event.results?.length || 0, isFinal: Boolean(event.results?.[event.results.length - 1]?.isFinal) });
         let text = "";
         for (let i = 0; i < event.results.length; i++) text += `${event.results[i][0].transcript} `;
         lastRef.current = text.trim();
@@ -191,13 +204,19 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
         onInterim?.(lastRef.current);
       };
       recognition.onerror = (event: any) => {
+        logDiagnostic("mic", "browser_recognition_error", "warn", { error: event.error || "unknown", message: event.message || "" });
         if (event.error === "aborted") return;
-        setError(event.error === "not-allowed" || event.error === "service-not-allowed" ? t("micBlocked") : event.error === "no-speech" ? t("noSpeech") : t("speechErr"));
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          setError(t("micBlocked"));
+          void finishBackup(false);
+          setListening(false); recognitionActiveRef.current = false; setAudioMicState("idle");
+          return;
+        }
         finish();
       };
       recognition.onend = finish;
       setListening(true); recognitionActiveRef.current = true; setAudioMicState("speech_recognition"); recRef.current = recognition;
-      try { recognition.start(); } catch (cause) { setListening(false); setError(t("speechErr")); void finishBackup(false); console.warn("[LingoArena STT] Web Speech start failed", cause); }
+      try { recognition.start(); logDiagnostic("mic", "browser_recognition_started", "info", { locale: resolveLocale(locale), backupRecorderAvailable: Boolean(backupCapture || backupPromise) }); } catch (cause) { setListening(false); setError(t("speechErr")); void finishBackup(false); logDiagnostic("mic", "browser_recognition_start_failed", "error", { error: cause instanceof Error ? cause.message : String(cause) }); console.warn("[LingoArena STT] Web Speech start failed", cause); }
       return;
     }
 
@@ -214,8 +233,9 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
         const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
         recorderRef.current = recorder; chunksRef.current = [];
         recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
-        recorder.onerror = () => setError(t("speechErr"));
+        recorder.onerror = (event) => { logDiagnostic("mic", "media_recorder_error", "error", { error: (event as Event).type }); setError(t("speechErr")); };
         recorder.onstop = async () => {
+          logDiagnostic("mic", "media_recorder_stopped", "info", { chunks: chunksRef.current.length, audioBytes: chunksRef.current.reduce((sum, chunk) => sum + chunk.size, 0), mimeType: recorder.mimeType || "unknown" });
           if (silenceTimerRef.current) window.clearTimeout(silenceTimerRef.current);
           setListening(false);
           stream.getTracks().forEach((track) => track.stop());
@@ -232,12 +252,15 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
           const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
           if (!blob.size) { setError("No audio was captured. Check microphone permission and try again."); return; }
           try {
+            setProcessing(true);
+            setError("Recording captured. Transcribing…");
             const transcript = await transcribeAudio(blob, locale);
             setError(null);
             lastRef.current = transcript;
             callbackRef.current?.onInterim?.(transcript);
             callbackRef.current?.onDone(transcript);
           } catch (cause) {
+            logDiagnostic("mic", "server_transcription_failed", "error", { error: cause instanceof Error ? cause.message : String(cause) });
             console.warn("[LingoArena STT] server transcription unavailable", cause);
             // Keep browser recognition as a fallback on desktop as well as iOS.
             const fallback = getRecognition();
@@ -262,9 +285,12 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
                 setError(`STT unavailable: ${cause instanceof Error ? cause.message : String(cause)}; browser fallback failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
               }
             } else setError(`Speech transcription unavailable: ${cause instanceof Error ? cause.message : String(cause)}. Check API configuration or type your answer.`);
+          } finally {
+            setProcessing(false);
           }
         };
         recorder.start(250);
+        logDiagnostic("mic", "media_recorder_started", "info", { mimeType: recorder.mimeType || "browser_default", locale: resolveLocale(locale), audioTracks: stream.getAudioTracks().length });
         setListening(true); setAudioMicState("recording");
         silenceTimerRef.current = window.setTimeout(() => {
           if (recorder.state === "recording") { setError(t("noSpeech")); recorder.stop(); }
@@ -335,7 +361,7 @@ export function useSpeech(locale: string, native: NativeLang = "en") {
     recognitionActiveRef.current = false;
     setAudioMicState("idle");
   };
-  return { listening, error, supported, listen, stop };
+  return { listening, processing, error, supported, listen, stop };
 }
 
 /** Global sound status/banner plus optional mobile diagnostics. */

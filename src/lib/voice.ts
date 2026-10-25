@@ -1,3 +1,5 @@
+import { createDiagnosticId, getDiagnosticEvents, logDiagnostic } from "@/lib/diagnostics";
+
 /** Shared mobile-safe audio/TTS manager. All playback reuses one persistent HTMLAudioElement. */
 let ctx: AudioContext | null = null;
 let player: HTMLAudioElement | null = null;
@@ -71,7 +73,7 @@ function emitAudioState() {
   if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent("lingo-audio-state", { detail: getAudioDebugState() }));
 }
 export function getAudioDebugState() {
-  return { unlocked, muted, contextState: ctx?.state || "unavailable", currentEngine, lastTtsError, unlockError, voicesCount: typeof window !== "undefined" && "speechSynthesis" in window ? window.speechSynthesis.getVoices().length : 0, micState, lastApiStatus, audioSessionType: audioSessionType(), userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unavailable", logs: [...debugLogs] };
+  return { diagnosticEvents: getDiagnosticEvents().slice(-40), unlocked, muted, contextState: ctx?.state || "unavailable", currentEngine, lastTtsError, unlockError, voicesCount: typeof window !== "undefined" && "speechSynthesis" in window ? window.speechSynthesis.getVoices().length : 0, micState, lastApiStatus, audioSessionType: audioSessionType(), userAgent: typeof navigator !== "undefined" ? navigator.userAgent : "unavailable", logs: [...debugLogs] };
 }
 export function setAudioMicState(value: string) { micState = value; emitAudioState(); }
 export function setAudioApiStatus(value: string) { lastApiStatus = value; emitAudioState(); }
@@ -624,20 +626,39 @@ export async function transcribeAudio(blob: Blob, locale: string): Promise<strin
     reader.onerror = () => reject(reader.error || new Error("STT_FILE_READ_FAILED"));
     reader.readAsDataURL(blob);
   });
-  const response = await fetch("/api/stt", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ audioBase64, mimeType: blob.type || "audio/webm", locale: resolveLocale(locale) }),
-  });
+  const diagnosticId = createDiagnosticId("stt");
+  const startedAt = performance.now();
+  logDiagnostic("stt", "upload_started", "info", { diagnosticId, mimeType: blob.type || "audio/webm", audioBytes: blob.size, base64Chars: audioBase64.length, locale: resolveLocale(locale) });
+  let response: Response;
+  try {
+    response = await fetch("/api/stt", {
+      method: "POST", headers: { "Content-Type": "application/json", "x-lingo-request-id": diagnosticId },
+      body: JSON.stringify({ audioBase64, mimeType: blob.type || "audio/webm", locale: resolveLocale(locale), diagnosticId }),
+    });
+  } catch (error) {
+    const detail = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+    logDiagnostic("stt", "fetch_failed", "error", { diagnosticId, error: detail, elapsedMs: Math.round(performance.now() - startedAt) });
+    throw new Error(`STT_NETWORK_ERROR [${diagnosticId}]: ${detail}`);
+  }
   setAudioApiStatus(`stt:${response.status}`);
   const responseText = await response.text().catch(() => "");
-  let result: { text?: string; error?: string; details?: string; message?: string } = {};
+  const responseContentType = response.headers.get("content-type") || "missing";
+  const vercelId = response.headers.get("x-vercel-id") || "unavailable";
+  const serverDiagnosticId = response.headers.get("x-lingo-request-id") || diagnosticId;
+  let result: { text?: string; error?: string; details?: string; message?: string; diagnosticId?: string; provider?: string; status?: number } = {};
   try { result = responseText ? JSON.parse(responseText) as typeof result : {}; }
-  catch { result = { details: responseText.slice(0, 240) }; }
+  catch { result = { details: responseText.slice(0, 700) }; }
+  const common = { diagnosticId, serverDiagnosticId, httpStatus: response.status, contentType: responseContentType, vercelId, elapsedMs: Math.round(performance.now() - startedAt), responseBytes: responseText.length, provider: result.provider || "unknown", serverError: result.error || "none" };
   if (!response.ok) {
-    const reason = [result.error, result.details, result.message].filter(Boolean).join(": ").slice(0, 260);
-    throw new Error(`STT_HTTP_${response.status}${reason ? `: ${reason}` : ""}`);
+    const reason = [result.error, result.details, result.message].filter(Boolean).join(": ").slice(0, 500);
+    logDiagnostic("stt", "upload_failed", "error", { ...common, responseBody: responseText.slice(0, 700), reason });
+    throw new Error(`STT_HTTP_${response.status} [diagnosticId=${diagnosticId}; vercelId=${vercelId}]: ${reason || `non-JSON response (${responseContentType})`}`);
   }
-  if (!result.text?.trim()) throw new Error("STT_EMPTY: server returned no transcript");
+  if (!result.text?.trim()) {
+    logDiagnostic("stt", "empty_transcript", "error", common);
+    throw new Error(`STT_EMPTY [diagnosticId=${diagnosticId}]: server returned no transcript`);
+  }
+  logDiagnostic("stt", "upload_succeeded", "info", { ...common, transcriptLength: result.text.trim().length });
   return result.text.trim();
 }
 

@@ -73,10 +73,10 @@ export function GrammarBattle({ lingo, reward, fail }: { lingo: Lingo; reward: (
         <div className="flex gap-2">
           <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} disabled={!!done}
             placeholder={t("typeIn", { lang: langName(s.target, s.native) })} className="flex-1 rounded-2xl border-2 border-border bg-card p-4 text-lg font-bold outline-none focus:border-primary" />
-          {speech.supported && <MicButton listening={speech.listening} disabled={!!done} onClick={() => (speech.listening ? speech.stop() : speech.listen((recognized) => { setInput(recognized); submit(recognized); }, setInput, false))} />}
+          {speech.supported && <MicButton listening={speech.listening} disabled={!!done || speech.processing} onClick={() => (speech.listening ? speech.stop() : speech.listen((recognized) => { setInput(recognized); submit(recognized); }, setInput, false))} />}
         </div>
         {speech.error && <p className="text-sm font-bold text-destructive">{speech.error}</p>}
-        {speech.listening && <p className="text-xs font-bold text-primary">Listening… speak the full sentence, then pause.</p>}
+        {speech.processing ? <p role="status" className="text-xs font-bold text-primary">Transcribing your recording…</p> : speech.listening && <p className="text-xs font-bold text-primary">Listening… speak the full sentence, then pause.</p>}
         {!speech.supported && <p className="text-xs text-muted-foreground">{t("noVoice")}</p>}
         {!done && <Btn className="w-full" onClick={() => submit(input)} disabled={!input.trim()}><Send className="mr-2 inline h-4 w-4" />{attempts ? t("resubmit") : t("submit")}</Btn>}
       </div>

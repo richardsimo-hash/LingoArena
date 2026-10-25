@@ -241,7 +241,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
         <div className="flex h-6 items-end gap-1" aria-hidden>
           {[0, 1, 2, 3, 4, 5, 6].map((i) => <span key={i} className={cn("w-1.5 rounded-full bg-emerald-300 transition-all", talking ? "animate-pulse" : "")} style={{ height: talking ? 7 + ((i * 9) % 18) : 4, animationDelay: `${i * 90}ms` }} />)}
         </div>
-        <p className="text-xs font-bold text-white/80">{busy || handsFreeController.state === "thinking" ? "Thinking…" : handsFreeController.state === "capturing" ? "Listening to your answer…" : speech.listening || handsFreeController.state === "listening" ? "Listening…" : talking || handsFreeController.state === "speaking" ? "Speaking…" : "Ready to talk"}</p>
+        <p className="text-xs font-bold text-white/80">{speech.processing ? "Transcribing your speech…" : busy || handsFreeController.state === "thinking" ? "Thinking…" : handsFreeController.state === "capturing" ? "Listening to your answer…" : speech.listening || handsFreeController.state === "listening" ? "Listening…" : talking || handsFreeController.state === "speaking" ? "Speaking…" : "Ready to talk"}</p>
         <div className="absolute right-4 top-4 rounded-full bg-black/25 px-3 py-1 text-xs font-bold">{minutes === 0 ? "∞ session" : mmss(Math.max(0, left))}</div>
       </div>
       <div className="flex flex-col items-center gap-2">
@@ -249,7 +249,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
         <div className="flex h-5 items-end gap-1" aria-hidden>
           {[0, 1, 2, 3].map((i) => <span key={i} className={cn("w-1.5 rounded bg-primary transition-all", talking ? "animate-pulse" : "")} style={{ height: talking ? 8 + ((i * 7) % 12) : 4, animationDelay: `${i * 120}ms` }} />)}
         </div>
-        <p className="text-xs font-bold text-muted-foreground">{t(`p_${persona.id}` as K)}{busy && ` · ${t("thinking")}`}{speech.listening && ` · ${t("listening")}`}</p>
+        <p className="text-xs font-bold text-muted-foreground">{t(`p_${persona.id}` as K)}{busy && ` · ${t("thinking")}`}{speech.processing ? " · Transcribing…" : speech.listening && ` · ${t("listening")}`}</p>
       </div>
 
       {offline && <p role="status" className="text-center text-xs font-bold text-muted-foreground">{s.native === "es" ? `Modo local: ${offlineReason || "el proveedor de IA no está disponible"}. Puedes seguir practicando con respuestas locales.` : `Local mode: ${offlineReason || "the AI provider is unavailable"}. You can keep practicing with local responses.`}</p>}
@@ -272,7 +272,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
       <div className="flex gap-2">
         <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send(input)} placeholder={t("typeMsg")}
           className="flex-1 rounded-2xl border-2 border-border bg-card p-3 font-bold outline-none focus:border-primary" />
-        {speech.supported && <MicButton listening={speech.listening || handsFreeController.isListening} onClick={() => (speech.listening || handsFreeController.isListening ? (handsFreeController.stop(), speech.stop()) : speech.listen(send, setInput))} />}
+        {speech.supported && <MicButton disabled={speech.processing} listening={speech.listening || handsFreeController.isListening} onClick={() => (speech.listening || handsFreeController.isListening ? (handsFreeController.stop(), speech.stop()) : speech.listen(send, setInput))} />}
         <Btn aria-label={t("send")} onClick={() => send(input)} disabled={!input.trim() || busy}><Send className="h-4 w-4" /></Btn>
       </div>
     </div>

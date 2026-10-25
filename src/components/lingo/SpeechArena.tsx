@@ -75,8 +75,8 @@ function Duel({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void })
       </Card>
 
       <div className="flex flex-col items-center gap-3">
-        <MicButton big listening={speech.listening} disabled={!speech.supported} onClick={() => (speech.listening ? speech.stop() : go())} />
-        <p className="text-sm font-bold text-muted-foreground">{speech.listening ? t("listening") : speech.supported ? t("tapSpeak") : t("noVoice")}</p>
+        <MicButton big listening={speech.listening} disabled={!speech.supported || speech.processing} onClick={() => (speech.listening ? speech.stop() : go())} />
+        <p className="text-sm font-bold text-muted-foreground">{speech.processing ? "Transcribing your speech…" : speech.listening ? t("listening") : speech.supported ? t("tapSpeak") : t("noVoice")}</p>
         {spoken && <p className="text-sm">{t("youSaid")}: <b>{spoken}</b></p>}
         {speech.error && <p className="text-center text-sm font-bold text-destructive">{speech.error}</p>}
       </div>
