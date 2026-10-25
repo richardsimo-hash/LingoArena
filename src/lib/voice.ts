@@ -35,12 +35,32 @@ function audioContext(): AudioContext | null {
   try {
     const Ctor = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!Ctor) return null;
-    ctx ??= new Ctor();
+    if (!ctx) { ctx = new Ctor(); if (getPreferredSpeakerId()) applySpeaker(ctx as unknown as SinkCapable); }
     return ctx;
   } catch (error) {
     console.warn("[LingoArena audio] AudioContext unavailable", error);
     return null;
   }
+}
+
+const SPEAKER_KEY = "lingoarena-speaker-device";
+type SinkCapable = { setSinkId?: (id: string) => Promise<void> };
+export function getPreferredSpeakerId(): string {
+  try { return localStorage.getItem(SPEAKER_KEY) || ""; } catch { return ""; }
+}
+/** True when this browser can route app audio to a chosen output device (Chrome/Edge). */
+export function canChooseSpeaker(): boolean {
+  return typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
+}
+function applySpeaker(target: SinkCapable | null | undefined, id = getPreferredSpeakerId()) {
+  if (!target?.setSinkId) return;
+  void target.setSinkId(id).catch((error) => logAudio("setSinkId failed", error));
+}
+/** Routes the app's audio player and sound effects; browser speech synthesis always uses the system output. */
+export function setPreferredSpeakerId(id: string) {
+  try { if (id) localStorage.setItem(SPEAKER_KEY, id); else localStorage.removeItem(SPEAKER_KEY); } catch { /* storage may be disabled */ }
+  applySpeaker(player as SinkCapable | null, id);
+  applySpeaker(ctx as unknown as SinkCapable | null, id);
 }
 
 function persistentPlayer(): HTMLAudioElement | null {
@@ -58,6 +78,7 @@ function persistentPlayer(): HTMLAudioElement | null {
     player.style.left = "-10px"; player.style.bottom = "0";
     player.setAttribute("aria-hidden", "true");
     document.body.appendChild(player);
+    if (getPreferredSpeakerId()) applySpeaker(player as SinkCapable);
   }
   return player;
 }

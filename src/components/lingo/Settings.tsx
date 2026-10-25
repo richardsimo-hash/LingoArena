@@ -5,6 +5,7 @@ import { defaultTarget, type Lingo } from "@/lib/lingo/store";
 import { getAccent, setAccent } from "@/lib/voice";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { Btn } from "./ui";
+import { AudioDeviceSettings } from "./AudioDeviceSettings";
 import { cn } from "@/lib/utils";
 
 export function Settings({ lingo, onClose }: { lingo: Lingo; onClose: () => void }) {
@@ -58,6 +59,8 @@ export function Settings({ lingo, onClose }: { lingo: Lingo; onClose: () => void
             : target === "it" ? [["auto", "Auto"], ["it-IT", "Italiano — Italia"]]
             : [["auto", "Auto"], ["ja-JP", "日本語 — 日本"]]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
+
+        <AudioDeviceSettings />
 
         <label className="mb-2 block text-xs font-extrabold uppercase text-muted-foreground">{t("persona")}</label>
         <div className="mb-5 space-y-2">
