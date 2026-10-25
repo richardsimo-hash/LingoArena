@@ -12,20 +12,31 @@ export default async function handler(req: { method?: string; body?: Body; heade
   if (!bytes.length || bytes.length > 3 * 1024 * 1024) return res.status(413).json({ ok: false, error: "audio_size_invalid", provider: "none", status: 413 });
   const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
   if (geminiApiKey) {
+    let providerFailure = "gemini_stt_unavailable";
+    let providerStatus = 502;
     try {
       const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(process.env.GEMINI_STT_MODEL || "gemini-3.8-flash")}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
         method: "POST", signal: AbortSignal.timeout(20000), headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ contents: [{ parts: [{ text: `Transcribe exactly what is spoken in language/locale ${locale}. Return only the transcription, with no commentary.` }, { inlineData: { mimeType, data: audioBase64 } }] }] }),
       });
-      if (!response.ok) throw new Error(`gemini_stt_http_${response.status}`);
+      if (!response.ok) {
+        const providerBody = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 240);
+        providerStatus = response.status === 429 ? 429 : response.status >= 500 ? 503 : 502;
+        providerFailure = `gemini_stt_http_${response.status}${providerBody ? `: ${providerBody}` : ""}`;
+        throw new Error(providerFailure);
+      }
       const data = await response.json() as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
       const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("").trim();
       if (!text) throw new Error("gemini_stt_empty");
       return res.status(200).json({ text, provider: "gemini" });
-    } catch (error) { console.warn("[LingoArena API] Gemini STT failed", error); }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn("[LingoArena API] Gemini STT failed", message);
+      if (!providerFailure || providerFailure === "gemini_stt_unavailable") providerFailure = message.slice(0, 260);
+    }
+    return res.status(providerStatus).json({ ok: false, error: providerStatus === 429 ? "gemini_stt_rate_limited" : "gemini_stt_unavailable", details: providerFailure, provider: "gemini", status: providerStatus, fallback: "browser_speech_recognition" });
   }
-  const missing = !process.env.GEMINI_API_KEY && !process.env.GEMINI_KEY;
-  return res.status(missing ? 503 : 502).json({ ok: false, error: missing ? "gemini_missing_key" : "gemini_stt_unavailable", provider: "gemini", status: missing ? 503 : 502, fallback: "browser_speech_recognition" });
+  return res.status(503).json({ ok: false, error: "gemini_missing_key", provider: "gemini", status: 503, fallback: "browser_speech_recognition" });
   } catch (error) {
     console.error("[LingoArena API] Unhandled STT handler error", error);
     return res.status(500).json({ ok: false, error: error instanceof Error ? error.message : "internal_error", provider: "server", status: 500 });

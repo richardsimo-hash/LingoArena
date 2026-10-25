@@ -611,10 +611,17 @@ export function getRecognition(): any | null {
 
 /** Upload recorded audio to the server-side STT route when Web Speech is unavailable. */
 export async function transcribeAudio(blob: Blob, locale: string): Promise<string> {
+  // Keep JSON/base64 payloads comfortably below common serverless request-body limits.
+  // A short spoken sentence should normally be far smaller than this threshold.
+  const MAX_STT_AUDIO_BYTES = 1_400_000;
+  if (!blob.size) throw new Error("STT_AUDIO_EMPTY");
+  if (blob.size > MAX_STT_AUDIO_BYTES) {
+    throw new Error("STT_AUDIO_TOO_LARGE: recording exceeded 1.4 MB; please record a shorter answer");
+  }
   const audioBase64 = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
-    reader.onerror = () => reject(reader.error);
+    reader.onerror = () => reject(reader.error || new Error("STT_FILE_READ_FAILED"));
     reader.readAsDataURL(blob);
   });
   const response = await fetch("/api/stt", {
@@ -622,9 +629,15 @@ export async function transcribeAudio(blob: Blob, locale: string): Promise<strin
     body: JSON.stringify({ audioBase64, mimeType: blob.type || "audio/webm", locale: resolveLocale(locale) }),
   });
   setAudioApiStatus(`stt:${response.status}`);
-  if (!response.ok) throw new Error(`STT_HTTP_${response.status}`);
-  const result = await response.json() as { text?: string };
-  if (!result.text?.trim()) throw new Error("STT_EMPTY");
+  const responseText = await response.text().catch(() => "");
+  let result: { text?: string; error?: string; details?: string; message?: string } = {};
+  try { result = responseText ? JSON.parse(responseText) as typeof result : {}; }
+  catch { result = { details: responseText.slice(0, 240) }; }
+  if (!response.ok) {
+    const reason = [result.error, result.details, result.message].filter(Boolean).join(": ").slice(0, 260);
+    throw new Error(`STT_HTTP_${response.status}${reason ? `: ${reason}` : ""}`);
+  }
+  if (!result.text?.trim()) throw new Error("STT_EMPTY: server returned no transcript");
   return result.text.trim();
 }
 

@@ -80,3 +80,10 @@
 - If browser recognition ends without text, the app attempts one Gemini `/api/stt` transcription of the captured audio before showing a no-speech error.
 - Normal browser-recognized turns discard the backup and do not call cloud STT, preserving the local-first usage policy.
 - Improved recovery when browser recognition fails to start by stopping the backup recorder.
+
+
+## 2026-10-25 — STT HTTP 500 diagnostics
+- STT client now reads the JSON/text error response and surfaces safe server details instead of only `STT_HTTP_500`.
+- Added an explicit empty-recording check and a 1.4 MB audio payload guard to reduce serverless request-body failures.
+- STT route now returns structured provider failure details and preserves Gemini 429 as a rate-limit response.
+- These changes improve diagnosis and error handling; they do not by themselves prove the deployed 500 root cause.
