@@ -101,3 +101,5 @@
 - Increased the Gemini STT fetch timeout to 25 seconds within the configured 30-second Vercel function duration and constrained transcription output to 128 tokens with deterministic generation settings.
 - Kept diagnostic request IDs and structured client/server logging.
 - Note: the provider timeout may still occur; if it does, correlated diagnostic logs should identify whether the request reached Gemini and how long it took.
+## 2026-10-25 — TypeScript build fix
+- Fixed `chunksRef` to use `Blob[]`, matching `MediaRecorder` data chunks and allowing diagnostic byte-size aggregation without accessing `.size` on the broader `BlobPart` union.
