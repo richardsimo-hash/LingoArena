@@ -6,6 +6,7 @@ import { useLingo, levelFromXp } from "@/lib/lingo/store";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { sfx, stopSpeaking, unlockAudio } from "@/lib/voice";
 import { Settings } from "@/components/lingo/Settings";
+import { useCloudSync } from "@/lib/lingo/sync";
 import { AudioControls } from "@/components/lingo/ui";
 import { LearnPath } from "@/components/lingo/LearnPath";
 import { GrammarBattle } from "@/components/lingo/GrammarBattle";
@@ -27,6 +28,7 @@ type Tab = (typeof TABS)[number]["id"];
 
 export default function App() {
   const lingo = useLingo();
+  const cloud = useCloudSync(lingo);
   const { s, loaded, update, addXp } = lingo;
   const t = makeT(s.native);
   const [tab, setTab] = useState<Tab>("learn");
@@ -52,7 +54,7 @@ export default function App() {
   return (
     <div onPointerDownCapture={() => { void unlockAudio(); }} onKeyDownCapture={() => { void unlockAudio(); }} className="min-h-dvh pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:pb-0 md:pl-60">
       <Toaster position="top-center" />
-      {(!s.configured || !s.name || showSettings) && <Settings lingo={lingo} onClose={() => setShowSettings(false)} />}
+      {(!s.configured || !s.name || showSettings) && <Settings lingo={lingo} cloud={cloud} onClose={() => setShowSettings(false)} />}
 
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col gap-2 border-r-2 border-border bg-card p-4 md:flex">

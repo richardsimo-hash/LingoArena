@@ -4,6 +4,15 @@ import { UNITS, type NativeLang, type TargetLang } from "./content";
 export const UI_ORDER: NativeLang[] = ["en", "es", "fr", "de", "it", "pt"];
 
 export const S = {
+  // account + sync
+  syncTitle: ["Save progress on all your devices", "Guarda tu progreso en todos tus dispositivos", "Sauvegarde ta progression sur tous tes appareils", "Fortschritt auf allen Geräten speichern", "Salva i progressi su tutti i dispositivi", "Guarda o progresso em todos os dispositivos"],
+  syncHint: ["Optional. Your lessons, reviews and XP sync; chat transcripts stay on this device.", "Opcional. Se sincronizan lecciones, repasos y XP; las conversaciones se quedan en este dispositivo.", "Facultatif. Leçons, révisions et XP sont synchronisées ; les conversations restent sur cet appareil.", "Optional. Lektionen, Wiederholungen und XP werden synchronisiert; Gespräche bleiben auf diesem Gerät.", "Facoltativo. Lezioni, ripassi e XP si sincronizzano; le conversazioni restano su questo dispositivo.", "Opcional. Lições, revisões e XP são sincronizados; as conversas ficam neste dispositivo."],
+  continueWith: ["Continue with {p}", "Continuar con {p}", "Continuer avec {p}", "Weiter mit {p}", "Continua con {p}", "Continuar com {p}"],
+  signedInAs: ["Signed in as {who}", "Sesión iniciada como {who}", "Connecté en tant que {who}", "Angemeldet als {who}", "Accesso effettuato come {who}", "Sessão iniciada como {who}"],
+  signOut: ["Sign out", "Cerrar sesión", "Se déconnecter", "Abmelden", "Esci", "Terminar sessão"],
+  synced: ["Synced", "Sincronizado", "Synchronisé", "Synchronisiert", "Sincronizzato", "Sincronizado"],
+  syncing: ["Syncing…", "Sincronizando…", "Synchronisation…", "Synchronisiere…", "Sincronizzazione…", "A sincronizar…"],
+  syncError: ["Sync error", "Error de sincronización", "Erreur de synchronisation", "Synchronisierungsfehler", "Errore di sincronizzazione", "Erro de sincronização"],
   // learner name
   yourName: ["What's your name?", "¿Cómo te llamas?", "Comment tu t'appelles ?", "Wie heißt du?", "Come ti chiami?", "Como te chamas?"],
   namePlaceholder: ["Your first name", "Tu nombre", "Ton prénom", "Dein Vorname", "Il tuo nome", "O teu nome"],

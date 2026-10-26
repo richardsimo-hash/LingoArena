@@ -1,5 +1,7 @@
-import { useState } from "react";
-import { X, Trash2 } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AUTH_PROVIDERS, type AuthProvider } from "@/lib/auth";
+import type { CloudSync } from "@/lib/lingo/sync";
+import { X, Trash2, Apple } from "lucide-react";
 import { NATIVES, PERSONAS, TARGETS, type NativeLang } from "@/lib/lingo/content";
 import { defaultTarget, type Lingo } from "@/lib/lingo/store";
 import { getAccent, setAccent } from "@/lib/voice";
@@ -8,13 +10,15 @@ import { Btn } from "./ui";
 import { AudioDeviceSettings } from "./AudioDeviceSettings";
 import { cn } from "@/lib/utils";
 
-export function Settings({ lingo, onClose }: { lingo: Lingo; onClose: () => void }) {
+export function Settings({ lingo, cloud, onClose }: { lingo: Lingo; cloud: CloudSync; onClose: () => void }) {
   const { s, update, reset } = lingo;
   const [native, setNative] = useState(s.native);
   const [target, setTarget] = useState(s.target);
   const [persona, setPersona] = useState(s.persona);
   const [name, setName] = useState(s.name);
   const cleanName = name.replace(/\s+/g, " ").trim().slice(0, 40);
+  // Signing in can fill the name from the account; adopt it unless the learner already typed one.
+  useEffect(() => { if (s.name && !name) setName(s.name); }, [s.name]); // eslint-disable-line react-hooks/exhaustive-deps
   const [accent, setAccentChoice] = useState(() => getAccent(s.target));
   const [confirm, setConfirm] = useState(false);
   const t = makeT(native); // the dialog itself switches language as soon as the user picks one
@@ -89,6 +93,8 @@ export function Settings({ lingo, onClose }: { lingo: Lingo; onClose: () => void
 
         <Btn className="w-full" onClick={save} disabled={target === native || !cleanName}>{s.configured ? t("save") : t("enter")}</Btn>
 
+        {cloud.configured && <AccountSection cloud={cloud} t={t} />}
+
         {s.configured && (
           <div className="mt-4 border-t-2 border-border pt-4">
             {confirm ? (
@@ -104,4 +110,47 @@ export function Settings({ lingo, onClose }: { lingo: Lingo; onClose: () => void
       </div>
     </div>
   );
+}
+
+const PROVIDER_LABEL: Record<AuthProvider, string> = { google: "Google", apple: "Apple", azure: "Microsoft" };
+
+/** Optional sign-in, shown at the bottom of the dialog under the name/language settings. */
+function AccountSection({ cloud, t }: { cloud: CloudSync; t: ReturnType<typeof makeT> }) {
+  const [busy, setBusy] = useState<AuthProvider | null>(null);
+  return (
+    <div className="mt-5 space-y-3 border-t-2 border-border pt-4">
+      <div>
+        <p className="font-extrabold">☁️ {t("syncTitle")}</p>
+        <p className="text-xs text-muted-foreground">{t("syncHint")}</p>
+      </div>
+      {cloud.account ? (
+        <div className="flex items-center justify-between gap-3 rounded-2xl bg-muted p-3">
+          <div className="min-w-0">
+            <p className="truncate text-sm font-bold">{t("signedInAs", { who: cloud.account.email || cloud.account.name || PROVIDER_LABEL[cloud.account.provider as AuthProvider] || "" })}</p>
+            <p role="status" className={cn("text-xs font-bold", cloud.status === "error" ? "text-destructive" : "text-muted-foreground")}>
+              {cloud.status === "syncing" ? t("syncing") : cloud.status === "error" ? `${t("syncError")}: ${cloud.error}` : t("synced")}
+            </p>
+          </div>
+          <button onClick={() => void cloud.signOut()} className="shrink-0 rounded-xl border-2 border-border px-3 py-2 text-xs font-extrabold hover:bg-background">{t("signOut")}</button>
+        </div>
+      ) : (
+        <div className="grid gap-2">
+          {AUTH_PROVIDERS.map((provider) => (
+            <button key={provider} disabled={busy !== null} onClick={() => { setBusy(provider); void cloud.signIn(provider).finally(() => setBusy(null)); }}
+              className="flex items-center justify-center gap-2 rounded-2xl border-2 border-border bg-background p-3 font-bold transition hover:bg-muted disabled:opacity-60">
+              <ProviderMark provider={provider} />{busy === provider ? "…" : t("continueWith", { p: PROVIDER_LABEL[provider] })}
+            </button>
+          ))}
+          {cloud.status === "error" && <p role="status" className="text-xs font-bold text-destructive">{t("syncError")}: {cloud.error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Small monochrome provider marks (simple shapes, not the official logos). */
+function ProviderMark({ provider }: { provider: AuthProvider }) {
+  if (provider === "azure") return <span aria-hidden className="grid grid-cols-2 gap-0.5"><i className="h-2 w-2 bg-[#f25022]" /><i className="h-2 w-2 bg-[#7fba00]" /><i className="h-2 w-2 bg-[#00a4ef]" /><i className="h-2 w-2 bg-[#ffb900]" /></span>;
+  if (provider === "apple") return <Apple aria-hidden className="h-5 w-5" />;
+  return <span aria-hidden className="grid h-5 w-5 place-items-center rounded-full border-2 border-current text-[10px] font-black">G</span>;
 }

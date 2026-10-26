@@ -12,8 +12,10 @@ export type LangProgress = { completed: number; done: number[]; srs?: Deck; sinc
 const lessonConceptIds = (idx: number) => nodeConcepts(Math.floor(idx / NODES_PER_UNIT), idx % NODES_PER_UNIT).map((c) => c.id);
 export type State = {
   configured: boolean;
-  /** Learner's first name, asked on first use. Stored only in this browser. */
+  /** Learner's first name, asked on first use. Stored in this browser (and the account, if signed in). */
   name: string;
+  /** When name/languages/persona/speed/theme last changed (ms); decides which device's settings win on sync. */
+  settingsAt: number;
   native: NativeLang;
   target: TargetLang;
   persona: PersonaId;
@@ -37,10 +39,12 @@ const LEGACY_KEYS = ["lingo-arena-force-reset-v99", "lingo-arena-storage", "ling
 export const TOTAL_NODES = UNITS.length * NODES_PER_UNIT;
 
 const DEFAULT: State = {
-  configured: false, name: "", native: "en", target: "es", persona: "barista",
+  configured: false, name: "", settingsAt: 0, native: "en", target: "es", persona: "barista",
   xp: 0, hearts: MAX_HEARTS, heartsRefillAt: null, streak: 0, lastActive: null,
   progress: {}, rate: 1, dark: false, bestPron: 0, grammarWins: 0, rapidBest: 0,
 };
+
+export const SETTINGS_KEYS = ["name", "native", "target", "persona", "rate", "dark"] as const;
 
 export const levelFromXp = (xp: number) => Math.floor(xp / 100) + 1;
 
@@ -95,7 +99,7 @@ function readSaved(): unknown {
 }
 
 /** Validate + migrate whatever is in localStorage so languages are always consistent. */
-function sanitize(raw: unknown): State {
+export function sanitize(raw: unknown): State {
   const r = (raw && typeof raw === "object" ? raw : {}) as Partial<State> & { progress?: Record<string, { completed?: number; done?: number[] }> };
   const native = isNative(r.native) ? r.native : detectNative();
   let target = isTarget(r.target) ? r.target : defaultTarget(native);
@@ -150,6 +154,7 @@ export function useLingo() {
   /** Keeps native/target always different, whichever one the caller changes. */
   const update = useCallback((patch: Partial<State>) => setS((p) => {
     const next = { ...p, ...patch };
+    if (SETTINGS_KEYS.some((k) => k in patch)) next.settingsAt = Date.now();
     if (next.target === next.native) {
       if (patch.native && !patch.target) next.target = defaultTarget(next.native);
       else if (patch.target && !patch.native) next.target = p.target;
@@ -187,12 +192,15 @@ export function useLingo() {
     return { ...p, progress: { ...p.progress, [p.target]: { ...cur, srs, sinceReview: 0 } } };
   }), []);
 
+  /** Replaces the whole state (after merging with the cloud copy). */
+  const replace = useCallback((next: State) => setS(sanitize(next)), []);
+
   const reset = useCallback(() => { localStorage.removeItem(KEY); const native = detectNative(); setS({ ...DEFAULT, native, target: defaultTarget(native) }); }, []);
 
   const done = s.progress[s.target]?.done ?? [];
   const completed = done.length;
   const deck = s.progress[s.target]?.srs ?? {};
   const sinceReview = s.progress[s.target]?.sinceReview ?? 0;
-  return { s, loaded, update, addXp, loseHeart, completeNode, finishReview, reset, completed, done, deck, sinceReview };
+  return { s, loaded, update, replace, addXp, loseHeart, completeNode, finishReview, reset, completed, done, deck, sinceReview };
 }
 export type Lingo = ReturnType<typeof useLingo>;
