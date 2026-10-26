@@ -223,6 +223,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     speakerRef.current?.cancel(); stopSpeaking(); setTalking(false);
     if (handsFreeRef.current) handsFreeController.thinking(); else speech.stop();
     const history: Msg[] = [...msgsRef.current, { role: "user", content: v }];
+    lingo.countChatTurn();
     setMsgs(history); setInput("");
     void ask(history);
   };

@@ -3,7 +3,7 @@ import { AUTH_PROVIDERS, type AuthProvider } from "@/lib/auth";
 import type { CloudSync } from "@/lib/lingo/sync";
 import { X, Trash2, Apple } from "lucide-react";
 import { NATIVES, PERSONAS, TARGETS, type NativeLang } from "@/lib/lingo/content";
-import { defaultTarget, type Lingo } from "@/lib/lingo/store";
+import { DAILY_GOALS, defaultTarget, type Lingo } from "@/lib/lingo/store";
 import { getAccent, setAccent } from "@/lib/voice";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { Btn } from "./ui";
@@ -70,6 +70,15 @@ export function Settings({ lingo, cloud, onClose }: { lingo: Lingo; cloud: Cloud
             : target === "it" ? [["auto", "Auto"], ["it-IT", "Italiano — Italia"]]
             : [["auto", "Auto"], ["ja-JP", "日本語 — 日本"]]).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
+
+        <label className="mb-2 block text-xs font-extrabold uppercase text-muted-foreground">{t("dailyGoal")}</label>
+        <div className="mb-5 grid grid-cols-4 gap-2">
+          {DAILY_GOALS.map((goal) => (
+            <button key={goal} onClick={() => update({ dailyGoal: goal })} className={cn("rounded-2xl border-2 p-2 font-extrabold transition", s.dailyGoal === goal ? "border-primary bg-accent text-accent-foreground" : "border-border hover:bg-muted")}>
+              {goal}<span className="block text-[10px] font-bold opacity-70">XP</span>
+            </button>
+          ))}
+        </div>
 
         <AudioDeviceSettings />
 

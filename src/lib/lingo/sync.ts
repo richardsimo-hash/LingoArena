@@ -36,7 +36,17 @@ export function mergeStates(local: State, remote: State): State {
     grammarWins: Math.max(local.grammarWins, remote.grammarWins),
     rapidBest: Math.max(local.rapidBest, remote.rapidBest),
     progress,
+    dailyXp: mergeMax(local.dailyXp, remote.dailyXp),
+    reviewsDone: Math.max(local.reviewsDone, remote.reviewsDone),
+    chatTurns: Math.max(local.chatTurns, remote.chatTurns),
+    achievements: [...new Set([...local.achievements, ...remote.achievements])],
   };
+}
+
+function mergeMax(a: Record<string, number>, b: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = { ...b };
+  for (const [key, value] of Object.entries(a)) out[key] = Math.max(value, out[key] ?? 0);
+  return out;
 }
 
 function pickCard(a: Card, b: Card | undefined): Card {

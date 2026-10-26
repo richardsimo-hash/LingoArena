@@ -25,6 +25,14 @@ export type State = {
   streak: number;
   lastActive: string | null;
   progress: Partial<Record<TargetLang, LangProgress>>;
+  /** XP target per day (10/20/30/50). */
+  dailyGoal: number;
+  /** XP earned per local day, "YYYY-MM-DD" -> XP (last 60 days). */
+  dailyXp: Record<string, number>;
+  reviewsDone: number;
+  chatTurns: number;
+  /** Unlocked achievement ids (see achievements.ts). */
+  achievements: string[];
   rate: number;
   dark: boolean;
   bestPron: number;
@@ -41,14 +49,16 @@ export const TOTAL_NODES = UNITS.length * NODES_PER_UNIT;
 const DEFAULT: State = {
   configured: false, name: "", settingsAt: 0, native: "en", target: "es", persona: "barista",
   xp: 0, hearts: MAX_HEARTS, heartsRefillAt: null, streak: 0, lastActive: null,
-  progress: {}, rate: 1, dark: false, bestPron: 0, grammarWins: 0, rapidBest: 0,
+  progress: {}, dailyGoal: 20, dailyXp: {}, reviewsDone: 0, chatTurns: 0, achievements: [], rate: 1, dark: false, bestPron: 0, grammarWins: 0, rapidBest: 0,
 };
 
-export const SETTINGS_KEYS = ["name", "native", "target", "persona", "rate", "dark"] as const;
+export const SETTINGS_KEYS = ["name", "native", "target", "persona", "rate", "dark", "dailyGoal"] as const;
+export const DAILY_GOALS = [10, 20, 30, 50];
 
 export const levelFromXp = (xp: number) => Math.floor(xp / 100) + 1;
 
-function today() { return new Date().toISOString().slice(0, 10); }
+/** Local calendar date "YYYY-MM-DD" (so the day and the daily goal roll over at the learner's midnight). */
+export function today(date = new Date()) { return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 10); }
 function dayDiff(a: string, b: string) { return Math.round((Date.parse(b) - Date.parse(a)) / 86400000); }
 
 const isNative = (v: unknown): v is NativeLang => NATIVES.some((n) => n.id === v);
@@ -131,7 +141,16 @@ export function sanitize(raw: unknown): State {
   const hearts = Number.POSITIVE_INFINITY;
   const persona = parsePersona((r as { persona?: unknown }).persona);
   const name = typeof r.name === "string" ? r.name.replace(/\s+/g, " ").trim().slice(0, 40) : "";
-  return { ...DEFAULT, ...(r as Partial<State>), name, native, target, persona, hearts, progress };
+  const dailyGoal = DAILY_GOALS.includes(Number(r.dailyGoal)) ? Number(r.dailyGoal) : 20;
+  const dailyXp: Record<string, number> = {};
+  // Drop invalid entries first, then keep the 60 most recent days.
+  const validDays = Object.entries(r.dailyXp && typeof r.dailyXp === "object" ? r.dailyXp : {})
+    .filter(([day, xp]) => /^\d{4}-\d{2}-\d{2}$/.test(day) && Number.isFinite(Number(xp)))
+    .sort(([a], [b]) => a.localeCompare(b)).slice(-60);
+  for (const [day, xp] of validDays) dailyXp[day] = Math.max(0, Number(xp));
+  const count = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(0, Math.floor(Number(v))) : 0);
+  const achievements = Array.isArray(r.achievements) ? [...new Set(r.achievements.filter((a): a is string => typeof a === "string"))] : [];
+  return { ...DEFAULT, ...(r as Partial<State>), name, native, target, persona, hearts, progress, dailyGoal, dailyXp, reviewsDone: count(r.reviewsDone), chatTurns: count(r.chatTurns), achievements };
 }
 
 export function useLingo() {
@@ -171,8 +190,10 @@ export function useLingo() {
     const streakUp = s.lastActive !== t;
     const streak = streakUp ? (s.lastActive && dayDiff(s.lastActive, t) === 1 ? s.streak + 1 : 1) : s.streak;
     const levelUp = levelFromXp(s.xp + n) > levelFromXp(s.xp);
-    setS((p) => ({ ...p, xp: p.xp + n, streak, lastActive: t }));
-    return { levelUp, streakUp };
+    const todayXp = s.dailyXp[t] ?? 0;
+    const goalReached = todayXp < s.dailyGoal && todayXp + n >= s.dailyGoal;
+    setS((p) => ({ ...p, xp: p.xp + n, streak, lastActive: t, dailyXp: { ...p.dailyXp, [t]: (p.dailyXp[t] ?? 0) + n } }));
+    return { levelUp, streakUp, goalReached };
   }, [s]);
 
   // Compatibility no-op: mistakes never consume lives or block learning.
@@ -192,7 +213,7 @@ export function useLingo() {
     let srs = cur.srs ?? {};
     const today = dayNumber();
     for (const [id, correct] of Object.entries(results)) srs = grade(srs, id, correct, today);
-    return { ...p, progress: { ...p.progress, [p.target]: { ...cur, srs, sinceReview: 0 } } };
+    return { ...p, reviewsDone: p.reviewsDone + 1, progress: { ...p.progress, [p.target]: { ...cur, srs, sinceReview: 0 } } };
   }), []);
 
   /** Records a placement result (unit index to start from) or that the learner chose to start at zero. */
@@ -200,6 +221,9 @@ export function useLingo() {
     const cur = p.progress[p.target] ?? { done: [], completed: 0 };
     return { ...p, progress: { ...p.progress, [p.target]: { ...cur, placedUnit, placementSeen: true } } };
   }), []);
+
+  const countChatTurn = useCallback(() => setS((p) => ({ ...p, chatTurns: p.chatTurns + 1 })), []);
+  const unlockAchievements = useCallback((ids: string[]) => setS((p) => ({ ...p, achievements: [...new Set([...p.achievements, ...ids])] })), []);
 
   /** Replaces the whole state (after merging with the cloud copy). */
   const replace = useCallback((next: State) => setS(sanitize(next)), []);
@@ -212,6 +236,6 @@ export function useLingo() {
   const sinceReview = s.progress[s.target]?.sinceReview ?? 0;
   const placedUnit = s.progress[s.target]?.placedUnit;
   const placementSeen = s.progress[s.target]?.placementSeen ?? false;
-  return { s, loaded, update, replace, addXp, loseHeart, completeNode, finishReview, setPlacement, reset, completed, done, deck, sinceReview, placedUnit, placementSeen };
+  return { s, loaded, update, replace, addXp, loseHeart, completeNode, finishReview, setPlacement, countChatTurn, unlockAchievements, reset, completed, done, deck, sinceReview, placedUnit, placementSeen };
 }
 export type Lingo = ReturnType<typeof useLingo>;

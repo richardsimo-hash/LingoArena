@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Flame, Gem, Settings as SettingsIcon, Map, Mic, Swords, BarChart3, MessageCircle, Zap } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { NATIVES, TARGETS, type NativeLang, type TargetLang } from "@/lib/lingo/content";
-import { useLingo, levelFromXp } from "@/lib/lingo/store";
+import { useLingo, levelFromXp, today } from "@/lib/lingo/store";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { sfx, stopSpeaking, unlockAudio } from "@/lib/voice";
 import { Settings } from "@/components/lingo/Settings";
 import { useCloudSync } from "@/lib/lingo/sync";
+import { ACHIEVEMENTS, achievementTitle, newlyUnlocked } from "@/lib/lingo/achievements";
 import { AudioControls } from "@/components/lingo/ui";
 import { LearnPath } from "@/components/lingo/LearnPath";
 import { GrammarBattle } from "@/components/lingo/GrammarBattle";
@@ -40,10 +41,22 @@ export default function App() {
     const r = addXp(xp);
     sfx.correct();
     setBump((b) => b + 1);
+    if (r.goalReached) { setTimeout(sfx.levelUp, 250); toast.success(`🎯 ${t("goalReached")}`); }
     if (r.levelUp) { setTimeout(sfx.levelUp, 250); toast.success(`🏆 ${t("levelUp")} ${levelFromXp(s.xp + xp)}`); }
     else if (r.streakUp) { setTimeout(sfx.streak, 250); toast(`🔥 ${t("streakUp")}`); }
   };
   const fail = () => { sfx.wrong(); };
+  // Announce achievements once, as soon as the progress that earns them is saved.
+  useEffect(() => {
+    if (!loaded) return;
+    const fresh = newlyUnlocked(s);
+    if (!fresh.length) return;
+    lingo.unlockAchievements(fresh);
+    for (const id of fresh) {
+      const a = ACHIEVEMENTS.find((x) => x.id === id)!;
+      toast.success(`${a.emoji} ${t("newAchievement")}: ${achievementTitle(a, s.native)}`);
+    }
+  }, [s, loaded]); // eslint-disable-line react-hooks/exhaustive-deps
   const go = (id: Tab) => { void unlockAudio(); stopSpeaking(); setTab(id); };
 
   if (!loaded) return <div className="min-h-screen bg-background" />;
@@ -93,6 +106,7 @@ export default function App() {
 
       <main className="mx-auto w-full min-w-0 max-w-3xl px-3 py-5 sm:px-4 sm:py-6">
         <p className="mb-4 text-sm font-bold text-muted-foreground">{s.name && <span className="text-foreground">{t("hiName", { name: s.name })} · </span>}{t("learning")} {target.flag} {langName(s.target, s.native)} · {t("level")} {levelFromXp(s.xp)}</p>
+        <DailyGoalBar xp={s.dailyXp[today()] ?? 0} goal={s.dailyGoal} label={t("dailyGoal")} />
         {tab === "learn" && <LearnPath key={langKey} lingo={lingo} reward={reward} fail={fail} />}
         {tab === "arena" && <SpeechArena key={langKey} lingo={lingo} reward={reward} fail={fail} />}
         {tab === "grammar" && <GrammarBattle key={langKey} lingo={lingo} reward={reward} fail={fail} />}
@@ -109,6 +123,17 @@ export default function App() {
           </button>
         ))}
       </nav>
+    </div>
+  );
+}
+
+function DailyGoalBar({ xp, goal, label }: { xp: number; goal: number; label: string }) {
+  const done = xp >= goal;
+  return (
+    <div className="-mt-2 mb-4 flex items-center gap-3" aria-label={`${label}: ${xp}/${goal} XP`}>
+      <span className="text-xs font-extrabold uppercase text-muted-foreground">{done ? "🎯" : "⏳"} {label}</span>
+      <div className="h-2.5 flex-1 overflow-hidden rounded-full bg-muted"><div className={done ? "h-full rounded-full bg-flame" : "h-full rounded-full bg-primary"} style={{ width: `${Math.min(100, (xp / goal) * 100)}%` }} /></div>
+      <span className="text-xs font-extrabold">{Math.min(xp, goal)}/{goal} XP</span>
     </div>
   );
 }
