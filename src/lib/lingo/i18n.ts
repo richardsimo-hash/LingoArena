@@ -4,6 +4,29 @@ import { UNITS, type NativeLang, type TargetLang } from "./content";
 export const UI_ORDER: NativeLang[] = ["en", "es", "fr", "de", "it", "pt"];
 
 export const S = {
+  // lesson exercises ({lang} = target language name, {text} = phrase)
+  exChoose: ["Choose the {lang} translation for “{text}”.", "Elige la traducción en {lang} de «{text}».", "Choisis la traduction en {lang} de « {text} ».", "Wähle die Übersetzung auf {lang} für „{text}“.", "Scegli la traduzione in {lang} di «{text}».", "Escolhe a tradução em {lang} de «{text}»."],
+  exListen: ["Listen and choose the meaning of the spoken phrase.", "Escucha y elige el significado de la frase.", "Écoute et choisis le sens de la phrase.", "Hör zu und wähle die Bedeutung des Satzes.", "Ascolta e scegli il significato della frase.", "Ouve e escolhe o significado da frase."],
+  exTranslate: ["Translate “{text}” into {lang}.", "Traduce «{text}» al {lang}.", "Traduis « {text} » en {lang}.", "Übersetze „{text}“ ins {lang}e.", "Traduci «{text}» in {lang}.", "Traduz «{text}» para {lang}."],
+  exFill: ["Complete the {lang} phrase that means “{text}”.", "Completa la frase en {lang} que significa «{text}».", "Complète la phrase en {lang} qui veut dire « {text} ».", "Ergänze den Satz auf {lang}, der „{text}“ bedeutet.", "Completa la frase in {lang} che significa «{text}».", "Completa a frase em {lang} que significa «{text}»."],
+  exSpeak: ["Say this phrase in {lang}.", "Di esta frase en {lang}.", "Dis cette phrase en {lang}.", "Sag diesen Satz auf {lang}.", "Di' questa frase in {lang}.", "Diz esta frase em {lang}."],
+  kind_choose: ["Choose", "Elige", "Choisis", "Wähle", "Scegli", "Escolhe"],
+  kind_listen: ["Listen", "Escucha", "Écoute", "Hör zu", "Ascolta", "Ouve"],
+  kind_translate: ["Translate", "Traduce", "Traduis", "Übersetze", "Traduci", "Traduz"],
+  kind_fill: ["Fill in", "Completa", "Complète", "Ergänze", "Completa", "Completa"],
+  kind_speak: ["Speak", "Habla", "Parle", "Sprich", "Parla", "Fala"],
+  audioAuto: ["Audio plays automatically. Replay it if you need to.", "El audio suena solo. Repítelo si lo necesitas.", "L'audio se lance tout seul. Réécoute-le si besoin.", "Das Audio startet automatisch. Spiel es bei Bedarf erneut ab.", "L'audio parte da solo. Riascoltalo se serve.", "O áudio toca sozinho. Repete se precisares."],
+  phFill: ["Type the missing word…", "Escribe la palabra que falta…", "Écris le mot manquant…", "Schreib das fehlende Wort…", "Scrivi la parola mancante…", "Escreve a palavra que falta…"],
+  phTranslate: ["Translate into {lang}…", "Traduce al {lang}…", "Traduis en {lang}…", "Übersetze ins {lang}e…", "Traduci in {lang}…", "Traduz para {lang}…"],
+  rightAnswer: ["Correct! Nice work.", "¡Correcto! Buen trabajo.", "Correct ! Bien joué.", "Richtig! Gut gemacht.", "Giusto! Ottimo lavoro.", "Certo! Bom trabalho."],
+  wrongAnswer: ["Not quite. Correct answer: {answer}", "Casi. Respuesta correcta: {answer}", "Presque. Bonne réponse : {answer}", "Fast. Richtige Antwort: {answer}", "Quasi. Risposta giusta: {answer}", "Quase. Resposta certa: {answer}"],
+  tryAgainBtn: ["Try again", "Inténtalo otra vez", "Réessayer", "Nochmal versuchen", "Riprova", "Tenta outra vez"],
+  responseMatch: ["Response match", "Coincidencia", "Correspondance", "Übereinstimmung", "Corrispondenza", "Correspondência"],
+  speakHint: ["Say the phrase; the recognized words will be checked.", "Di la frase; se comprobarán las palabras reconocidas.", "Dis la phrase ; les mots reconnus seront vérifiés.", "Sprich den Satz; die erkannten Wörter werden geprüft.", "Di' la frase; verranno controllate le parole riconosciute.", "Diz a frase; as palavras reconhecidas serão verificadas."],
+  noRecognition: ["Speech recognition isn't available. Type your answer below.", "El reconocimiento de voz no está disponible. Escribe tu respuesta abajo.", "La reconnaissance vocale n'est pas disponible. Écris ta réponse ci-dessous.", "Spracherkennung ist nicht verfügbar. Tippe deine Antwort unten ein.", "Il riconoscimento vocale non è disponibile. Scrivi la risposta qui sotto.", "O reconhecimento de voz não está disponível. Escreve a resposta abaixo."],
+  transcribingRec: ["Transcribing your recording…", "Transcribiendo tu grabación…", "Transcription de ton enregistrement…", "Deine Aufnahme wird transkribiert…", "Trascrizione della registrazione…", "A transcrever a gravação…"],
+  typeSaid: ["Type what you said", "Escribe lo que dijiste", "Écris ce que tu as dit", "Schreib, was du gesagt hast", "Scrivi cosa hai detto", "Escreve o que disseste"],
+  cantSpeak: ["Can't speak now", "No puedo hablar ahora", "Je ne peux pas parler", "Kann gerade nicht sprechen", "Non posso parlare ora", "Não posso falar agora"],
   // account + sync
   syncTitle: ["Save progress on all your devices", "Guarda tu progreso en todos tus dispositivos", "Sauvegarde ta progression sur tous tes appareils", "Fortschritt auf allen Geräten speichern", "Salva i progressi su tutti i dispositivi", "Guarda o progresso em todos os dispositivos"],
   syncHint: ["Optional. Your lessons, reviews and XP sync; chat transcripts stay on this device.", "Opcional. Se sincronizan lecciones, repasos y XP; las conversaciones se quedan en este dispositivo.", "Facultatif. Leçons, révisions et XP sont synchronisées ; les conversations restent sur cet appareil.", "Optional. Lektionen, Wiederholungen und XP werden synchronisiert; Gespräche bleiben auf diesem Gerät.", "Facoltativo. Lezioni, ripassi e XP si sincronizzano; le conversazioni restano su questo dispositivo.", "Opcional. Lições, revisões e XP são sincronizados; as conversas ficam neste dispositivo."],
@@ -162,6 +185,12 @@ export const unitTitle = (unit: number, native: NativeLang) => {
   if (own) return own[Math.max(0, UI_ORDER.indexOf(native))] || own[0];
   return UNIT_TITLES[native][unit] ?? UNIT_TITLES.en[unit] ?? UNITS[unit]?.title ?? "";
 };
+
+/** Language name as used inside a sentence (lower case except in English and German). */
+export function langInSentence(id: TargetLang | NativeLang, native: NativeLang): string {
+  const name = langName(id, native);
+  return native === "en" || native === "de" ? name : name.toLocaleLowerCase(native);
+}
 
 /** Language name written in the learner's native language (e.g. native=es, id=en -> "Inglés"). */
 export function langName(id: TargetLang | NativeLang, native: NativeLang): string {

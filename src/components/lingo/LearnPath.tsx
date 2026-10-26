@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Star, X, Volume2, Languages, PencilLine, Mic, RotateCcw } from "lucide-react";
 import { CEFR_LEVELS, NODES_PER_UNIT, TARGETS, UNITS, nodeConcepts, unitConcepts, CONCEPTS, type Cefr, type Concept, type NativeLang, type TargetLang } from "@/lib/lingo/content";
 import { compareSpeech, shuffle } from "@/lib/lingo/engine";
-import { makeT, unitTitle, langName } from "@/lib/lingo/i18n";
+import { makeT, unitTitle, langName, langInSentence, type K } from "@/lib/lingo/i18n";
 import { speak, stopSpeaking } from "@/lib/voice";
 import type { Lingo } from "@/lib/lingo/store";
 import { INTERVALS, LESSONS_PER_REVIEW, dayNumber, deckStats, pickReview, type Deck } from "@/lib/lingo/srs";
@@ -43,7 +43,9 @@ const REVIEW_PLAN: ExerciseKind[] = ["translate", "listen", "fill", "speak", "ch
 /** Builds one exercise per plan slot, cycling through `concepts`; distractors come from `pool`. */
 export function buildExercises(concepts: Concept[], pool: Concept[], native: NativeLang, target: TargetLang, idPrefix: string, plan: ExerciseKind[] = LESSON_PLAN): Exercise[] {
   const used = new Set<string>();
-  const targetName = langName(target, "en");
+  const t = makeT(native);
+  const targetName = langInSentence(target, native);
+  const nativeName = langInSentence(native, native);
   return plan.map((wanted, i) => {
     const concept = concepts[i % concepts.length]!;
     const source = concept.tr[native] || concept.tr.en;
@@ -59,11 +61,11 @@ export function buildExercises(concepts: Concept[], pool: Concept[], native: Nat
     const pick = candidates.find((c) => (c.kind !== "fill" || blank) && !used.has(`${c.kind}:${concept.id}:${c.direction}`)) ?? candidates[1]!;
     used.add(`${pick.kind}:${concept.id}:${pick.direction}`);
     const { kind, direction } = pick;
-    const prompt = kind === "choose" ? `Choose the ${direction === "target" ? targetName : langName(native, "en")} translation for “${direction === "target" ? source : targetText}”.`
-      : kind === "listen" ? "Listen and choose the meaning of the spoken phrase."
-      : kind === "translate" ? `Translate “${source}” into ${targetName}.`
-      : kind === "fill" ? `Complete the ${targetName} phrase that means “${source}”.`
-      : `Say this phrase in ${targetName}.`;
+    const prompt = kind === "choose" ? t("exChoose", { lang: direction === "target" ? targetName : nativeName, text: direction === "target" ? source : targetText })
+      : kind === "listen" ? t("exListen")
+      : kind === "translate" ? t("exTranslate", { text: source, lang: targetName })
+      : kind === "fill" ? t("exFill", { lang: targetName, text: source })
+      : t("exSpeak", { lang: targetName });
     const answer = kind === "fill" ? blank!.answer : direction === "target" ? targetText : source;
     const optionPool = shuffle(pool.filter((candidate) => candidate.id !== concept.id));
     const options = shuffle([concept, ...optionPool.slice(0, 3)]);
@@ -289,14 +291,14 @@ function LessonRunner({ lingo, reward, title, build, onExit, onFinish }: { lingo
   return <div className="mx-auto max-w-xl space-y-5">
     <div className="flex items-center gap-3"><button aria-label={t("exit")} onClick={onExit}><X className="h-7 w-7 text-muted-foreground" /></button><div className="h-4 flex-1 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${((qi + (picked ? 1 : 0)) / questions.length) * 100}%` }} /></div><span className="text-xs font-extrabold" title={title}>{qi + 1}/{questions.length}</span></div>
     <Card className="space-y-3">
-      <div className="flex items-start gap-3"><span className="rounded-xl bg-accent p-3 text-accent-foreground">{q.kind === "listen" ? <Volume2 /> : q.kind === "speak" ? <Mic /> : q.kind === "translate" ? <Languages /> : <PencilLine />}</span><div><p className="text-xs font-extrabold uppercase text-muted-foreground">{q.kind.toUpperCase()}</p><h2 className="text-xl font-extrabold">{q.prompt}</h2></div></div>
-      {q.kind === "listen" && <p className="text-sm text-muted-foreground">Audio plays automatically. Replay if you need to hear it again.</p>}
+      <div className="flex items-start gap-3"><span className="rounded-xl bg-accent p-3 text-accent-foreground">{q.kind === "listen" ? <Volume2 /> : q.kind === "speak" ? <Mic /> : q.kind === "translate" ? <Languages /> : <PencilLine />}</span><div><p className="text-xs font-extrabold uppercase text-muted-foreground">{t(`kind_${q.kind}` as K)}</p><h2 className="text-xl font-extrabold">{q.prompt}</h2></div></div>
+      {q.kind === "listen" && <p className="text-sm text-muted-foreground">{t("audioAuto")}</p>}
       {q.kind === "speak" && <div className="space-y-2"><p className="text-2xl font-extrabold">{q.concept.tr[s.target]}</p><SpeakButtons text={q.answer} locale={targetInfo.locale} rate={s.rate} native={s.native} /></div>}
       {q.kind === "fill" && <p className="rounded-xl bg-muted p-3 text-xl font-bold">{q.display}</p>}
     </Card>
-    {(q.kind === "translate" || q.kind === "fill") && <div className="flex gap-2"><input value={typed} onChange={(event) => setTyped(event.target.value)} onKeyDown={(event) => event.key === "Enter" && checkTyped()} disabled={!!picked} placeholder={q.kind === "fill" ? "Type the missing word…" : `Translate into ${langName(s.target, s.native)}…`} className="min-w-0 flex-1 rounded-2xl border-2 border-border bg-card p-4 font-bold outline-none focus:border-primary" /><Btn onClick={checkTyped} disabled={!typed.trim() || !!picked}>Check</Btn></div>}
-    {q.kind === "speak" && <div className="flex flex-col items-center gap-2"><MicButton big listening={speech.listening} disabled={!speech.supported || !!picked || speech.processing} onClick={() => speech.listening ? speech.stop() : speech.listen(checkSpoken, undefined, false)} />{speech.error && <p className="text-xs text-destructive">{speech.error}</p>}{speech.processing && <p role="status" className="text-xs text-primary">Transcribing your recording…</p>}<p className="text-xs text-muted-foreground">{speech.supported ? "Speak the phrase; the recognized words will be checked." : "Speech recognition is not available. Type your answer below."}</p>{!picked && <button onClick={next} className="text-xs font-bold text-muted-foreground underline">{s.native === "es" ? "No puedo hablar ahora" : "Can't speak now"}</button>}{!speech.supported && <div className="flex w-full gap-2"><input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder="Type what you said" className="min-w-0 flex-1 rounded-xl border-2 border-border bg-card p-3" /><Btn onClick={() => { const r = compareSpeech(q.answer, typed, s.target); evaluate(r.score >= 80, r.score); }}>Check</Btn></div>}</div>}
+    {(q.kind === "translate" || q.kind === "fill") && <div className="flex gap-2"><input value={typed} onChange={(event) => setTyped(event.target.value)} onKeyDown={(event) => event.key === "Enter" && checkTyped()} disabled={!!picked} placeholder={q.kind === "fill" ? t("phFill") : t("phTranslate", { lang: langInSentence(s.target, s.native) })} className="min-w-0 flex-1 rounded-2xl border-2 border-border bg-card p-4 font-bold outline-none focus:border-primary" /><Btn onClick={checkTyped} disabled={!typed.trim() || !!picked}>{t("check")}</Btn></div>}
+    {q.kind === "speak" && <div className="flex flex-col items-center gap-2"><MicButton big listening={speech.listening} disabled={!speech.supported || !!picked || speech.processing} onClick={() => speech.listening ? speech.stop() : speech.listen(checkSpoken, undefined, false)} />{speech.error && <p className="text-xs text-destructive">{speech.error}</p>}{speech.processing && <p role="status" className="text-xs text-primary">{t("transcribingRec")}</p>}<p className="text-xs text-muted-foreground">{speech.supported ? t("speakHint") : t("noRecognition")}</p>{!picked && <button onClick={next} className="text-xs font-bold text-muted-foreground underline">{t("cantSpeak")}</button>}{!speech.supported && <div className="flex w-full gap-2"><input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={t("typeSaid")} className="min-w-0 flex-1 rounded-xl border-2 border-border bg-card p-3" /><Btn onClick={() => { const r = compareSpeech(q.answer, typed, s.target); evaluate(r.score >= 80, r.score); }}>{t("check")}</Btn></div>}</div>}
     {(q.kind === "choose" || q.kind === "listen") && <div className="grid gap-3">{q.options.map((option) => <button key={option.id} disabled={!!picked || q.kind === "speak"} onClick={() => choose(option.id)} className={cn("rounded-2xl border-2 border-b-4 p-4 text-left text-lg font-bold transition", !picked && "border-border hover:bg-muted", picked && option.id === q.concept.id && "border-success bg-success-soft", picked === option.id && option.id !== q.concept.id && "border-destructive bg-danger-soft", picked && option.id !== q.concept.id && "opacity-60")}>{optionText(option)}</button>)}</div>}
-    {picked && <div className={cn("space-y-3 rounded-2xl p-4", picked === q.concept.id ? "bg-success-soft" : "bg-danger-soft")}><p className="font-extrabold">{picked === q.concept.id ? "Correct! Nice work." : `Not quite. Correct answer: ${q.answer}`}</p>{score !== null && <ScoreBar label="Response match" value={score} />}<div className="flex gap-2">{picked !== q.concept.id && <Btn variant="ghost" className="flex-1" onClick={() => { setPicked(null); setScore(null); setTyped(""); }}>Try again</Btn>}<Btn className="flex-1" onClick={next}>{qi === questions.length - 1 ? t("finish") : t("cont")}</Btn></div></div>}
+    {picked && <div className={cn("space-y-3 rounded-2xl p-4", picked === q.concept.id ? "bg-success-soft" : "bg-danger-soft")}><p className="font-extrabold">{picked === q.concept.id ? t("rightAnswer") : t("wrongAnswer", { answer: q.answer })}</p>{score !== null && <ScoreBar label={t("responseMatch")} value={score} />}<div className="flex gap-2">{picked !== q.concept.id && <Btn variant="ghost" className="flex-1" onClick={() => { setPicked(null); setScore(null); setTyped(""); }}>{t("tryAgainBtn")}</Btn>}<Btn className="flex-1" onClick={next}>{qi === questions.length - 1 ? t("finish") : t("cont")}</Btn></div></div>}
   </div>;
 }
