@@ -6,7 +6,8 @@ import { isLocalWhisperReady, preloadLocalWhisper, transcribePcm } from "@/lib/l
 import { startLiveCapture, type LiveCapture } from "@/lib/liveCapture";
 import { AudioDebugPanel } from "@/components/lingo/DebugPanel";
 import { logDiagnostic } from "@/lib/diagnostics";
-import { makeT } from "@/lib/lingo/i18n";
+import { makeT, type K } from "@/lib/lingo/i18n";
+import { soundHints } from "@/lib/lingo/soundHints";
 import type { SpeechCompare } from "@/lib/lingo/engine";
 import type { NativeLang } from "@/lib/lingo/content";
 
@@ -325,6 +326,9 @@ export function WordFeedback({ result, heard, text, locale, native, big = false 
         ))}
       </div>
       {heard && <p className="text-center text-sm text-muted-foreground">{t("weHeard")}: “{heard}”</p>}
+      {heard && soundHints(text, heard, locale.slice(0, 2)).map((h, i) => (
+        <p key={i} className="rounded-xl bg-accent p-2 text-sm"><span aria-hidden>👄 </span>{t(`hint_${h.kind}` as K, { exp: h.expected, got: h.heard, x: h.detail ?? "?" })}</p>
+      ))}
       {missed.length > 0 && <p className="text-center text-sm font-bold">{t("practiceWords", { words: missed.join(", ") })}</p>}
       <div className="flex items-center justify-center gap-3">
         <button type="button" onClick={() => speak(text, { lang: locale, rate: 0.6 })} className="rounded-xl border-2 border-border px-3 py-1.5 text-xs font-extrabold hover:bg-muted">🐢 {t("hearSlowly")}</button>

@@ -68,7 +68,7 @@ function Duel({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void })
         <p className="text-xs font-extrabold uppercase text-muted-foreground">{t("sayIn", { lang: langName(s.target, s.native) })}</p>
         <div className="my-4">
           {res && !speech.listening
-            ? <WordFeedback big result={res} text={target} locale={tg.locale} native={s.native} />
+            ? <WordFeedback big result={res} heard={spoken} text={target} locale={tg.locale} native={s.native} />
             : <p className="text-center text-3xl font-extrabold">{target}</p>}
         </div>
         <p className="mb-4 text-muted-foreground">“{c.tr[s.native]}”</p>
@@ -78,7 +78,7 @@ function Duel({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void })
       <div className="flex flex-col items-center gap-3">
         <MicButton big listening={speech.listening} disabled={!speech.supported || speech.processing} onClick={() => (speech.listening ? speech.stop() : go())} />
         <p className="text-sm font-bold text-muted-foreground">{speech.processing ? "Transcribing your speech…" : speech.listening ? t("listening") : speech.supported ? t("tapSpeak") : t("noVoice")}</p>
-        {spoken && <p className="text-sm">{t("youSaid")}: <b>{spoken}</b></p>}
+        {spoken && !(res && !speech.listening) && <p className="text-sm">{t("youSaid")}: <b>{spoken}</b></p>}
         {speech.error && <p className="text-center text-sm font-bold text-destructive">{speech.error}</p>}
       </div>
 
