@@ -301,6 +301,41 @@ function LessonRunner({ lingo, reward, title, build, onExit, onFinish }: { lingo
     {(q.kind === "translate" || q.kind === "fill") && <div className="flex gap-2"><input value={typed} onChange={(event) => setTyped(event.target.value)} onKeyDown={(event) => event.key === "Enter" && checkTyped()} disabled={!!picked} placeholder={q.kind === "fill" ? t("phFill") : t("phTranslate", { lang: langInSentence(s.target, s.native) })} className="min-w-0 flex-1 rounded-2xl border-2 border-border bg-card p-4 font-bold outline-none focus:border-primary" /><Btn onClick={checkTyped} disabled={!typed.trim() || !!picked}>{t("check")}</Btn></div>}
     {q.kind === "speak" && <div className="flex flex-col items-center gap-2"><MicButton big listening={speech.listening} disabled={!speech.supported || !!picked || speech.processing} onClick={() => speech.listening ? speech.stop() : speech.listen(checkSpoken, undefined, false)} />{speech.error && <p className="text-xs text-destructive">{speech.error}</p>}{speech.processing && <p role="status" className="text-xs text-primary">{t("transcribingRec")}</p>}<p className="text-xs text-muted-foreground">{speech.supported ? t("speakHint") : t("noRecognition")}</p>{!picked && <button onClick={next} className="text-xs font-bold text-muted-foreground underline">{t("cantSpeak")}</button>}{!speech.supported && <div className="flex w-full gap-2"><input value={typed} onChange={(event) => setTyped(event.target.value)} placeholder={t("typeSaid")} className="min-w-0 flex-1 rounded-xl border-2 border-border bg-card p-3" /><Btn onClick={() => { const r = compareSpeech(q.answer, typed, s.target); evaluate(r.score >= 80, r.score); }}>{t("check")}</Btn></div>}</div>}
     {(q.kind === "choose" || q.kind === "listen") && <div className="grid gap-3">{q.options.map((option) => <button key={option.id} disabled={!!picked || q.kind === "speak"} onClick={() => choose(option.id)} className={cn("rounded-2xl border-2 border-b-4 p-4 text-left text-lg font-bold transition", !picked && "border-border hover:bg-muted", picked && option.id === q.concept.id && "border-success bg-success-soft", picked === option.id && option.id !== q.concept.id && "border-destructive bg-danger-soft", picked && option.id !== q.concept.id && "opacity-60")}>{optionText(option)}</button>)}</div>}
-    {picked && <div className={cn("space-y-3 rounded-2xl p-4", picked === q.concept.id ? "bg-success-soft" : "bg-danger-soft")}><p className="font-extrabold">{picked === q.concept.id ? t("rightAnswer") : t("wrongAnswer", { answer: q.answer })}</p>{score !== null && <ScoreBar label={t("responseMatch")} value={score} />}<div className="flex gap-2">{picked !== q.concept.id && <Btn variant="ghost" className="flex-1" onClick={() => { setPicked(null); setScore(null); setTyped(""); setSpokenResult(null); }}>{t("tryAgainBtn")}</Btn>}<Btn className="flex-1" onClick={next}>{qi === questions.length - 1 ? t("finish") : t("cont")}</Btn></div></div>}
+    {picked && <div className={cn("space-y-3 rounded-2xl p-4", picked === q.concept.id ? "bg-success-soft" : "bg-danger-soft")}><ReportTranslation key={q.id} concept={q.concept} native={s.native} target={s.target} /><p className="font-extrabold">{picked === q.concept.id ? t("rightAnswer") : t("wrongAnswer", { answer: q.answer })}</p>{score !== null && <ScoreBar label={t("responseMatch")} value={score} />}<div className="flex gap-2">{picked !== q.concept.id && <Btn variant="ghost" className="flex-1" onClick={() => { setPicked(null); setScore(null); setTyped(""); setSpokenResult(null); }}>{t("tryAgainBtn")}</Btn>}<Btn className="flex-1" onClick={next}>{qi === questions.length - 1 ? t("finish") : t("cont")}</Btn></div></div>}
   </div>;
+}
+
+type ReportReason = "wrong_translation" | "unnatural" | "typo" | "audio";
+/** Lets learners (and native-speaker reviewers) flag a phrase; reports go to /api/feedback. */
+function ReportTranslation({ concept, native, target }: { concept: Concept; native: NativeLang; target: TargetLang }) {
+  const t = makeT(native);
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState<ReportReason>("wrong_translation");
+  const [comment, setComment] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "sent">("idle");
+  if (state === "sent") return <p role="status" className="text-right text-xs font-bold text-muted-foreground">✓ {t("thanksReport")}</p>;
+  if (!open) return <button type="button" onClick={() => setOpen(true)} className="float-right text-xs font-bold text-muted-foreground underline">⚑ {t("reportTranslation")}</button>;
+  const send = async () => {
+    setState("sending");
+    await fetch("/api/feedback", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conceptId: concept.id, target, native, phraseTarget: concept.tr[target], phraseNative: concept.tr[native], reason, comment }),
+    }).catch(() => undefined);
+    setState("sent");
+  };
+  return (
+    <div className="space-y-2 rounded-xl bg-card p-3">
+      <p className="text-xs font-extrabold">⚑ {t("reportTranslation")}: “{concept.tr[target]}”</p>
+      <div className="flex flex-wrap gap-1.5">
+        {(["wrong_translation", "unnatural", "typo", "audio"] as const).map((r) => (
+          <button key={r} type="button" onClick={() => setReason(r)} className={cn("rounded-full border-2 px-2.5 py-1 text-xs font-bold", reason === r ? "border-primary bg-accent" : "border-border")}>{t(`reason_${r}` as K)}</button>
+        ))}
+      </div>
+      <input value={comment} onChange={(e) => setComment(e.target.value)} maxLength={300} placeholder={t("commentOptional")} className="w-full rounded-xl border-2 border-border bg-background p-2 text-sm" />
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={() => setOpen(false)} className="text-xs font-bold text-muted-foreground">✕</button>
+        <Btn className="px-3 py-1.5 text-xs" disabled={state === "sending"} onClick={() => void send()}>{t("sendReport")}</Btn>
+      </div>
+    </div>
+  );
 }

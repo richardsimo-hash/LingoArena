@@ -32,6 +32,15 @@ export const S = {
   hearSlowly: ["Hear it slowly", "Escúchala despacio", "Écouter lentement", "Langsam anhören", "Ascolta lentamente", "Ouvir devagar"],
   weHeard: ["We heard", "Escuchamos", "Nous avons entendu", "Wir haben gehört", "Abbiamo sentito", "Ouvimos"],
   practiceWords: ["Practise: {words}", "Practica: {words}", "Entraîne-toi : {words}", "Übe: {words}", "Esercitati: {words}", "Pratica: {words}"],
+  // translation reports
+  reportTranslation: ["Report translation", "Reportar traducción", "Signaler la traduction", "Übersetzung melden", "Segnala traduzione", "Reportar tradução"],
+  reason_wrong_translation: ["Wrong translation", "Traducción incorrecta", "Mauvaise traduction", "Falsche Übersetzung", "Traduzione sbagliata", "Tradução errada"],
+  reason_unnatural: ["Sounds unnatural", "No suena natural", "Pas naturel", "Klingt unnatürlich", "Non suona naturale", "Não soa natural"],
+  reason_typo: ["Typo", "Errata", "Faute de frappe", "Tippfehler", "Refuso", "Gralha"],
+  reason_audio: ["Audio problem", "Problema de audio", "Problème audio", "Audioproblem", "Problema audio", "Problema de áudio"],
+  commentOptional: ["Suggestion (optional)", "Sugerencia (opcional)", "Suggestion (facultatif)", "Vorschlag (optional)", "Suggerimento (facoltativo)", "Sugestão (opcional)"],
+  sendReport: ["Send", "Enviar", "Envoyer", "Senden", "Invia", "Enviar"],
+  thanksReport: ["Thanks! We'll review it.", "¡Gracias! Lo revisaremos.", "Merci ! Nous allons vérifier.", "Danke! Wir prüfen das.", "Grazie! Lo controlleremo.", "Obrigado! Vamos rever."],
   // motivation
   dailyGoal: ["Daily goal", "Meta diaria", "Objectif du jour", "Tagesziel", "Obiettivo giornaliero", "Meta diária"],
   goalReached: ["Daily goal reached!", "¡Meta diaria cumplida!", "Objectif du jour atteint !", "Tagesziel erreicht!", "Obiettivo giornaliero raggiunto!", "Meta diária cumprida!"],
