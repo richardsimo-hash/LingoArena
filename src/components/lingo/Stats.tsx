@@ -6,10 +6,12 @@ import { levelFromXp, today, TOTAL_NODES, type Lingo } from "@/lib/lingo/store";
 import { ACHIEVEMENTS, achievementTitle, progressFacts } from "@/lib/lingo/achievements";
 import { nextLesson } from "./LearnPath";
 import { MyPhrases } from "./MyPhrases";
+import { Leaderboard } from "./Leaderboard";
+import type { CloudSync } from "@/lib/lingo/sync";
 import { Btn, Card } from "./ui";
 import { cn } from "@/lib/utils";
 
-export function Stats({ lingo }: { lingo: Lingo }) {
+export function Stats({ lingo, cloud }: { lingo: Lingo; cloud?: CloudSync }) {
   const { s } = lingo;
   const t = makeT(s.native);
   const [showPhrases, setShowPhrases] = useState(false);
@@ -43,6 +45,7 @@ export function Stats({ lingo }: { lingo: Lingo }) {
         ))}
       </div>
       <Btn variant="secondary" className="w-full" onClick={() => setShowPhrases(true)}>📒 {t("myPhrases")} · {Object.keys(lingo.deck).length}</Btn>
+      {cloud && <Leaderboard lingo={lingo} cloud={cloud} />}
       <ParentReport lingo={lingo} />
       <Card>
         <h3 className="mb-3 text-xl font-extrabold">{t("achievementsT")} · {s.achievements.length}/{ACHIEVEMENTS.length}</h3>

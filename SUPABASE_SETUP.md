@@ -23,6 +23,7 @@ Never add the **service_role / secret** key to Vercel with a `VITE_` or `NEXT_PU
 ## 2. Create the tables
 Supabase → **SQL Editor** → paste and run, in order:
 - `supabase/migrations/0001_progress.sql` — `public.progress` with row-level security: each user can only read/write their own row.
+- `supabase/migrations/0004_weekly_xp.sql` — `public.weekly_xp` for the opt-in weekly leaderboard (first name + weekly XP; signed-in users can read, each user writes only their own row).
 - `supabase/migrations/0002_translation_reports.sql` — `public.translation_reports`, where learners' "Report translation" flags are stored. Only the server can write it; read it in the Table Editor.
 
 For translation reports to reach the database, add **`SUPABASE_SERVICE_ROLE_KEY`** (Supabase → Project Settings → API → service_role / secret key) to Vercel as a **server-only** variable — no `VITE_` / `NEXT_PUBLIC_` prefix. Without it, reports still appear in the Vercel function logs.

@@ -83,3 +83,22 @@ export async function saveCloudState(userId: string, state: unknown) {
   const { error } = await supabase.from("progress").upsert({ user_id: userId, state, updated_at: new Date().toISOString() });
   if (error) throw error;
 }
+
+export type BoardRow = { user_id: string; display_name: string; xp: number };
+
+/** Publishes this week's XP for the opted-in learner (first name only). */
+export async function saveWeeklyXp(userId: string, week: string, displayName: string, xp: number) {
+  const supabase = await client();
+  const { error } = await supabase.from("weekly_xp").upsert({ user_id: userId, week, display_name: displayName.slice(0, 40) || "Learner", xp: Math.min(99_999, Math.max(0, Math.round(xp))), updated_at: new Date().toISOString() });
+  if (error) throw error;
+}
+export async function leaveLeaderboard(userId: string, week: string) {
+  const supabase = await client();
+  await supabase.from("weekly_xp").delete().eq("user_id", userId).eq("week", week);
+}
+export async function loadLeaderboard(week: string): Promise<BoardRow[]> {
+  const supabase = await client();
+  const { data, error } = await supabase.from("weekly_xp").select("user_id, display_name, xp").eq("week", week).order("xp", { ascending: false }).limit(30);
+  if (error) throw error;
+  return (data ?? []) as BoardRow[];
+}

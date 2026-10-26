@@ -118,7 +118,7 @@ export default function App() {
         {tab === "grammar" && <GrammarBattle key={langKey} lingo={lingo} reward={reward} fail={fail} />}
         {tab === "fire" && <FireCombo key={langKey} lingo={lingo} reward={reward} />}
         {tab === "chat" && <FreeChat key={langKey} lingo={lingo} reward={reward} />}
-        {tab === "stats" && <Stats lingo={lingo} />}
+        {tab === "stats" && <Stats lingo={lingo} cloud={cloud} />}
         </Suspense>
       </main>
 

@@ -57,6 +57,13 @@ export const S = {
   commentOptional: ["Suggestion (optional)", "Sugerencia (opcional)", "Suggestion (facultatif)", "Vorschlag (optional)", "Suggerimento (facoltativo)", "Sugestão (opcional)"],
   sendReport: ["Send", "Enviar", "Envoyer", "Senden", "Invia", "Enviar"],
   thanksReport: ["Thanks! We'll review it.", "¡Gracias! Lo revisaremos.", "Merci ! Nous allons vérifier.", "Danke! Wir prüfen das.", "Grazie! Lo controlleremo.", "Obrigado! Vamos rever."],
+  // leaderboard
+  leaderboard: ["Weekly leaderboard", "Clasificación semanal", "Classement de la semaine", "Wochenrangliste", "Classifica settimanale", "Classificação semanal"],
+  joinLeaderboard: ["Join the weekly leaderboard", "Unirme a la clasificación semanal", "Rejoindre le classement", "Der Wochenrangliste beitreten", "Partecipa alla classifica", "Entrar na classificação"],
+  leaderboardHint: ["Shows only your first name and this week's XP. Resets every Monday.", "Solo muestra tu nombre y tu XP de esta semana. Se reinicia cada lunes.", "N'affiche que ton prénom et ton XP de la semaine. Remis à zéro chaque lundi.", "Zeigt nur deinen Vornamen und die XP dieser Woche. Montags neu.", "Mostra solo il nome e gli XP della settimana. Si azzera ogni lunedì.", "Mostra só o teu nome e o XP da semana. Recomeça às segundas."],
+  signInToCompete: ["Sign in (Settings) to join the weekly leaderboard.", "Inicia sesión (Ajustes) para unirte a la clasificación.", "Connecte-toi (Réglages) pour rejoindre le classement.", "Melde dich (Einstellungen) an, um mitzumachen.", "Accedi (Impostazioni) per partecipare.", "Inicia sessão (Definições) para participar."],
+  leaveLeaderboard: ["Leave", "Salir", "Quitter", "Verlassen", "Esci", "Sair"],
+  you: ["you", "tú", "toi", "du", "tu", "tu"],
   // listening practice
   listening2: ["Listening", "Escucha", "Écoute", "Hören", "Ascolto", "Escuta"],
   playScene: ["Play scene", "Reproducir escena", "Lire la scène", "Szene abspielen", "Riproduci scena", "Reproduzir cena"],
