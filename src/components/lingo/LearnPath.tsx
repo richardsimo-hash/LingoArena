@@ -8,6 +8,7 @@ import type { Lingo } from "@/lib/lingo/store";
 import { INTERVALS, LESSONS_PER_REVIEW, dayNumber, deckStats, pickReview, type Deck } from "@/lib/lingo/srs";
 import { Btn, Card, SpeakButtons, MicButton, useSpeech, ScoreBar, WordFeedback } from "./ui";
 import { PlacementTest } from "./PlacementTest";
+import { GrammarTip } from "./GrammarTip";
 import { cn } from "@/lib/utils";
 
 const UNIT_STYLE = ["bg-primary text-primary-foreground", "bg-secondary text-secondary-foreground", "bg-flame text-primary-foreground", "bg-heart text-primary-foreground", "bg-accent text-accent-foreground"];
@@ -108,6 +109,7 @@ export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: 
   const t = makeT(s.native);
   const es = s.native === "es";
   const [view, setView] = useState<View>(null);
+  const [tipUnit, setTipUnit] = useState<number | null>(null);
   const next = nextLesson(done, placedUnit ?? 0);
   const nextUnit = Math.floor(next / NODES_PER_UNIT);
   const currentLevel = UNITS[nextUnit]!.level;
@@ -214,7 +216,9 @@ export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: 
               <p className="text-xs font-extrabold uppercase opacity-80">{unit.level} · {t("unit")} {ui + 1}</p>
               <h2 className="text-2xl font-extrabold">{unit.emoji} {unitTitle(ui, s.native)}</h2>
               <p className="mt-1 text-sm font-bold opacity-80">{unit.focus} · {es ? "3 lecciones × 10 ejercicios" : "3 lessons × 10 exercises"}</p>
+              <button onClick={() => setTipUnit(tipUnit === ui ? null : ui)} className="mt-2 rounded-xl bg-black/15 px-3 py-1 text-xs font-extrabold">💡 {t("grammarTip")}</button>
             </div>
+            {tipUnit === ui && <div className="-mt-3 mb-6"><GrammarTip lingo={lingo} unit={ui} onClose={() => setTipUnit(null)} /></div>}
             <div className="flex flex-col items-center gap-5">
               {Array.from({ length: NODES_PER_UNIT }).map((_, ni) => {
                 const idx = ui * NODES_PER_UNIT + ni; const isDone = finished.has(idx); const isNext = idx === next;

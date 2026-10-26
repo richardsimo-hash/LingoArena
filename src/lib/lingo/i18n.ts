@@ -44,6 +44,10 @@ export const S = {
   commentOptional: ["Suggestion (optional)", "Sugerencia (opcional)", "Suggestion (facultatif)", "Vorschlag (optional)", "Suggerimento (facoltativo)", "Sugestão (opcional)"],
   sendReport: ["Send", "Enviar", "Envoyer", "Senden", "Invia", "Enviar"],
   thanksReport: ["Thanks! We'll review it.", "¡Gracias! Lo revisaremos.", "Merci ! Nous allons vérifier.", "Danke! Wir prüfen das.", "Grazie! Lo controlleremo.", "Obrigado! Vamos rever."],
+  // grammar tips
+  grammarTip: ["Grammar tip", "Consejo de gramática", "Astuce de grammaire", "Grammatiktipp", "Consiglio di grammatica", "Dica de gramática"],
+  explainAi: ["Explain with AI", "Explícalo con IA", "Expliquer avec l'IA", "Mit KI erklären", "Spiega con l'IA", "Explicar com IA"],
+  tipOffline: ["Couldn't load the explanation. Try again when you're online.", "No se pudo cargar la explicación. Inténtalo con conexión.", "Impossible de charger l'explication. Réessaie en ligne.", "Erklärung konnte nicht geladen werden. Versuche es online erneut.", "Impossibile caricare la spiegazione. Riprova online.", "Não foi possível carregar a explicação. Tenta com ligação."],
   // my phrases
   myPhrases: ["My phrases", "Mis frases", "Mes phrases", "Meine Sätze", "Le mie frasi", "As minhas frases"],
   searchPhrases: ["Search…", "Buscar…", "Rechercher…", "Suchen…", "Cerca…", "Procurar…"],
