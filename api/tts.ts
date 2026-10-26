@@ -139,9 +139,12 @@ async function geminiTts(text: string, locale: string): Promise<{ bytes: Uint8Ar
 }
 
 /** OpenAI text-to-speech (MP3), used when Gemini fails. Model/voice: OPENAI_TTS_MODEL, OPENAI_TTS_VOICE. */
+// After an out-of-credits/rate-limit answer, skip OpenAI for a while instead of paying a round trip per sentence.
+let openAiTtsBlockedUntil = 0;
 async function openaiTts(text: string, rate: number, locale: string): Promise<TtsResult> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("openai_missing_key");
+  if (Date.now() < openAiTtsBlockedUntil) throw new Error("openai_tts_cooldown");
   const response = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST", signal: AbortSignal.timeout(20_000),
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
@@ -155,7 +158,11 @@ async function openaiTts(text: string, rate: number, locale: string): Promise<Tt
       speed: Math.min(1.5, Math.max(0.7, rate || 1)),
     }),
   });
-  if (!response.ok) throw new Error(`openai_tts_http_${response.status}: ${(await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200)}`);
+  if (!response.ok) {
+    const detail = (await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200);
+    if (response.status === 429) openAiTtsBlockedUntil = Date.now() + (/insufficient_quota|no credits/i.test(detail) ? 10 * 60_000 : 60_000);
+    throw new Error(`openai_tts_http_${response.status}: ${detail}`);
+  }
   return { bytes: new Uint8Array(await response.arrayBuffer()), mimeType: "audio/mpeg" };
 }
 
@@ -189,7 +196,7 @@ export default async function handler(req: RequestLike, res: ResponseLike): Prom
         sendAudio(res, result.bytes, "audio/mpeg");
         return true;
       } catch (error) {
-        console.error("[LingoArena TTS] OpenAI fallback failed", safeError(error));
+        if (!/cooldown/.test(safeError(error))) console.error("[LingoArena TTS] OpenAI fallback failed", safeError(error));
         return false;
       }
     };

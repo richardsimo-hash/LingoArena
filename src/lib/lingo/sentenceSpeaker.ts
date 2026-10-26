@@ -37,7 +37,9 @@ export function createSentenceSpeaker(options: { lang: string; rate: number; nat
       void playPreparedSpeech(url, callbacks, continuing).then((played) => { if (!played && !cancelled) browserVoice(); });
     });
   };
-  const enqueue = (text: string) => queue.push({ text, audio: options.natural ? prefetchSpeech(text, options.lang, options.rate) : null });
+  // If natural audio is not ready within 6 s, use the device voice for that sentence rather than leave silence.
+  const withTimeout = (audio: Promise<string | null>) => Promise.race([audio, new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000))]);
+  const enqueue = (text: string) => queue.push({ text, audio: options.natural ? withTimeout(prefetchSpeech(text, options.lang, options.rate)) : null });
   return {
     /** Pass the full spoken text so far (without the correction line). */
     update(text: string, final = false) {
