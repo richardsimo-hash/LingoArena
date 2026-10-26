@@ -25,7 +25,7 @@ export function FireCombo({ lingo, reward }: { lingo: Lingo; reward: (xp: number
   const [questions, setQuestions] = useState<Question[]>([]); const [selected, setSelected] = useState<string | null>(null); const [reveal, setReveal] = useState(false); const [earned, setEarned] = useState(0);
   const config = FIRE_COMBO_LEVELS[level - 1]!; const q = questions[index];
   const makeQuestions = (chosen: number) => {
-    const cfg = FIRE_COMBO_LEVELS[chosen - 1]!; const pool = practiceConcepts(lingo.done); const deck = shuffle(pool);
+    const cfg = FIRE_COMBO_LEVELS[chosen - 1]!; const pool = practiceConcepts(lingo.done, lingo.placedUnit ?? 0); const deck = shuffle(pool);
     return Array.from({ length: cfg.count }, (_, i) => {
       const concept = deck[i % deck.length]!;
       const options = shuffle([concept, ...shuffle(pool.filter((c) => c.id !== concept.id)).slice(0, 3)]);

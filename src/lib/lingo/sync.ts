@@ -21,7 +21,8 @@ export function mergeStates(local: State, remote: State): State {
     const done = [...new Set([...a.done, ...b.done])].sort((x, y) => x - y);
     const srs: Deck = { ...(b.srs ?? {}) };
     for (const [id, card] of Object.entries(a.srs ?? {})) srs[id] = pickCard(card, srs[id]);
-    progress[lang] = { done, completed: done.length, srs, sinceReview: Math.max(a.sinceReview ?? 0, b.sinceReview ?? 0) };
+    const placed = [a.placedUnit, b.placedUnit].filter((u): u is number => typeof u === "number");
+    progress[lang] = { done, completed: done.length, srs, sinceReview: Math.max(a.sinceReview ?? 0, b.sinceReview ?? 0), placedUnit: placed.length ? Math.max(...placed) : undefined, placementSeen: Boolean(a.placementSeen || b.placementSeen) };
   }
   return {
     ...older,

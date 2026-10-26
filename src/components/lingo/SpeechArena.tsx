@@ -31,7 +31,7 @@ function Duel({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void })
   const t = makeT(s.native);
   const tg = TARGETS.find((x) => x.id === s.target)!;
   // Phrases from the units the learner has reached; no repeats until every phrase was used.
-  const deck = useRef(makeDeck(practiceConcepts(lingo.done))).current;
+  const deck = useRef(makeDeck(practiceConcepts(lingo.done, lingo.placedUnit ?? 0))).current;
   const [c, setC] = useState<Concept>(() => deck());
   const [spoken, setSpoken] = useState("");
   const [typed, setTyped] = useState("");
@@ -132,7 +132,7 @@ function Rapid({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void; 
 
   const start = (selectedLevel = level) => {
     const config = TURBO_LEVELS[selectedLevel - 1]!;
-    const pool = practiceConcepts(lingo.done);
+    const pool = practiceConcepts(lingo.done, lingo.placedUnit ?? 0);
     const shuffled = shuffle(pool);
     const picks = Array.from({ length: config.questions }, (_, i) => shuffled[i % shuffled.length]!);
     const usedConceptIds = new Set<string>();

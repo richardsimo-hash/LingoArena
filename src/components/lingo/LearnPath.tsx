@@ -7,6 +7,7 @@ import { speak, stopSpeaking } from "@/lib/voice";
 import type { Lingo } from "@/lib/lingo/store";
 import { INTERVALS, LESSONS_PER_REVIEW, dayNumber, deckStats, pickReview, type Deck } from "@/lib/lingo/srs";
 import { Btn, Card, SpeakButtons, MicButton, useSpeech, ScoreBar } from "./ui";
+import { PlacementTest } from "./PlacementTest";
 import { cn } from "@/lib/utils";
 
 const UNIT_STYLE = ["bg-primary text-primary-foreground", "bg-secondary text-secondary-foreground", "bg-flame text-primary-foreground", "bg-heart text-primary-foreground", "bg-accent text-accent-foreground"];
@@ -89,20 +90,23 @@ export function buildReviewExercises(ids: string[], native: NativeLang, target: 
 }
 
 /** The first lesson not yet finished, in path order (nothing is locked; this is a recommendation). */
-export function nextLesson(done: number[]): number {
+export function nextLesson(done: number[], startUnit = 0): number {
   const finished = new Set(done);
-  for (let i = 0; i < UNITS.length * NODES_PER_UNIT; i++) if (!finished.has(i)) return i;
+  const total = UNITS.length * NODES_PER_UNIT;
+  // From the placement level onwards first; if all of that is done, any earlier gap.
+  for (let i = startUnit * NODES_PER_UNIT; i < total; i++) if (!finished.has(i)) return i;
+  for (let i = 0; i < total; i++) if (!finished.has(i)) return i;
   return 0;
 }
 
-type View = { type: "lesson"; node: number } | { type: "reviewPrompt" } | { type: "review"; ids: string[] } | { type: "reviewDone"; up: number; total: number } | null;
+type View = { type: "placement" } | { type: "lesson"; node: number } | { type: "reviewPrompt" } | { type: "review"; ids: string[] } | { type: "reviewDone"; up: number; total: number } | null;
 
 export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: number) => void; fail: () => void }) {
-  const { s, done, deck, sinceReview, completeNode, finishReview } = lingo;
+  const { s, done, deck, sinceReview, completeNode, finishReview, placedUnit, placementSeen, setPlacement } = lingo;
   const t = makeT(s.native);
   const es = s.native === "es";
   const [view, setView] = useState<View>(null);
-  const next = nextLesson(done);
+  const next = nextLesson(done, placedUnit ?? 0);
   const nextUnit = Math.floor(next / NODES_PER_UNIT);
   const currentLevel = UNITS[nextUnit]!.level;
   const [open, setOpen] = useState<Set<Cefr>>(() => new Set([currentLevel]));
@@ -115,6 +119,24 @@ export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: 
     if (ids.length) setView({ type: "review", ids });
   };
 
+  if (view?.type === "placement") {
+    return <PlacementTest lingo={lingo} onCancel={() => setView(null)} onFinish={(unit) => {
+      setPlacement(unit);
+      setOpen((prev) => new Set([...prev, UNITS[unit]!.level]));
+      setView(null);
+    }} />;
+  }
+  if (!placementSeen && done.length === 0) {
+    return <Card className="mx-auto max-w-xl space-y-4 text-center">
+      <div className="text-6xl">🧭</div>
+      <h2 className="text-3xl font-extrabold">{es ? `¿Ya sabes algo de ${langName(s.target, s.native).toLowerCase()}?` : `Already know some ${langName(s.target, s.native)}?`}</h2>
+      <p className="text-muted-foreground">{es ? "Haz una prueba de nivel de 3 minutos y empieza en el punto justo. Sin micrófono." : "Take a 3-minute placement test and start at the right level. No microphone needed."}</p>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Btn className="flex-1" onClick={() => setView({ type: "placement" })}>{es ? "Hacer la prueba" : "Take the test"}</Btn>
+        <Btn variant="ghost" className="flex-1" onClick={() => setPlacement(undefined)}>{es ? "Empezar desde cero" : "Start from zero"}</Btn>
+      </div>
+    </Card>;
+  }
   if (view?.type === "lesson") {
     const unit = Math.floor(view.node / NODES_PER_UNIT);
     return <LessonRunner key={`lesson-${view.node}`} lingo={lingo} reward={reward} title={`${t("unit")} ${unit + 1} · ${t("lesson")} ${(view.node % NODES_PER_UNIT) + 1}`}
@@ -206,6 +228,7 @@ export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: 
         })}
       </section>;
     })}
+    <button onClick={() => setView({ type: "placement" })} className="mx-auto block text-sm font-bold text-muted-foreground underline">{es ? "Repetir la prueba de nivel" : "Retake placement test"}</button>
   </div>;
 }
 

@@ -7,7 +7,7 @@ import type { NativeLang, PersonaId, TargetLang } from "./content";
  * `done` holds the indexes of finished lessons (any order — nothing is locked).
  * `srs` is the Leitner deck of learned phrases; `sinceReview` counts lessons since the last review.
  */
-export type LangProgress = { completed: number; done: number[]; srs?: Deck; sinceReview?: number };
+export type LangProgress = { completed: number; done: number[]; srs?: Deck; sinceReview?: number; placedUnit?: number; placementSeen?: boolean };
 
 const lessonConceptIds = (idx: number) => nodeConcepts(Math.floor(idx / NODES_PER_UNIT), idx % NODES_PER_UNIT).map((c) => c.id);
 export type State = {
@@ -123,7 +123,10 @@ export function sanitize(raw: unknown): State {
     const missing = unique.flatMap(lessonConceptIds).filter((id) => !known.has(id));
     if (missing.length) srs = introduce(srs, missing, dayNumber(), missing);
     const sinceReview = Number.isInteger((p as { sinceReview?: unknown }).sinceReview) ? Number((p as { sinceReview?: number }).sinceReview) : 0;
-    progress[lang] = { done: unique, completed: unique.length, srs, sinceReview };
+    const rawPlaced = Number((p as { placedUnit?: unknown }).placedUnit);
+    const placedUnit = Number.isInteger(rawPlaced) && rawPlaced >= 0 && rawPlaced < UNITS.length ? rawPlaced : undefined;
+    const placementSeen = Boolean((p as { placementSeen?: unknown }).placementSeen) || unique.length > 0;
+    progress[lang] = { done: unique, completed: unique.length, srs, sinceReview, placedUnit, placementSeen };
   }
   const hearts = Number.POSITIVE_INFINITY;
   const persona = parsePersona((r as { persona?: unknown }).persona);
@@ -192,6 +195,12 @@ export function useLingo() {
     return { ...p, progress: { ...p.progress, [p.target]: { ...cur, srs, sinceReview: 0 } } };
   }), []);
 
+  /** Records a placement result (unit index to start from) or that the learner chose to start at zero. */
+  const setPlacement = useCallback((placedUnit: number | undefined) => setS((p) => {
+    const cur = p.progress[p.target] ?? { done: [], completed: 0 };
+    return { ...p, progress: { ...p.progress, [p.target]: { ...cur, placedUnit, placementSeen: true } } };
+  }), []);
+
   /** Replaces the whole state (after merging with the cloud copy). */
   const replace = useCallback((next: State) => setS(sanitize(next)), []);
 
@@ -201,6 +210,8 @@ export function useLingo() {
   const completed = done.length;
   const deck = s.progress[s.target]?.srs ?? {};
   const sinceReview = s.progress[s.target]?.sinceReview ?? 0;
-  return { s, loaded, update, replace, addXp, loseHeart, completeNode, finishReview, reset, completed, done, deck, sinceReview };
+  const placedUnit = s.progress[s.target]?.placedUnit;
+  const placementSeen = s.progress[s.target]?.placementSeen ?? false;
+  return { s, loaded, update, replace, addXp, loseHeart, completeNode, finishReview, setPlacement, reset, completed, done, deck, sinceReview, placedUnit, placementSeen };
 }
 export type Lingo = ReturnType<typeof useLingo>;

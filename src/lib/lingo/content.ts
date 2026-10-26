@@ -143,8 +143,8 @@ export const nodeConcepts = (unit: number, node: number) => CONCEPTS.filter((c) 
  * every unit up to two past their furthest finished lesson, and always at least units 1-5,
  * so beginners are not handed B2 idioms while advanced learners still get variety.
  */
-export function practiceConcepts(done: number[]): Concept[] {
-  const furthest = done.length ? Math.floor(Math.max(...done) / NODES_PER_UNIT) : 0;
+export function practiceConcepts(done: number[], placedUnit = 0): Concept[] {
+  const furthest = Math.max(placedUnit, done.length ? Math.floor(Math.max(...done) / NODES_PER_UNIT) : 0);
   const lastUnit = Math.min(UNITS.length - 1, Math.max(4, furthest + 2));
   return CONCEPTS.filter((c) => c.unit <= lastUnit);
 }

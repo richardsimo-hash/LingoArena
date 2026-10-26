@@ -19,7 +19,7 @@ export function GrammarBattle({ lingo, reward, fail }: { lingo: Lingo; reward: (
   const tg = TARGETS.find((x) => x.id === s.target)!;
   const persona = PERSONAS.find((p) => p.id === s.persona)!;
   // Phrases from the units the learner has reached; never repeats a sentence until all were used.
-  const deck = useRef(makeDeck(practiceConcepts(lingo.done))).current;
+  const deck = useRef(makeDeck(practiceConcepts(lingo.done, lingo.placedUnit ?? 0))).current;
   const [ci, setCi] = useState(0);
   const [c, setC] = useState<Concept>(() => deck());
   const [input, setInput] = useState("");
