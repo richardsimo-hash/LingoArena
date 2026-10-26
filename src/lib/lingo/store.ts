@@ -30,6 +30,8 @@ export type State = {
   /** XP earned per local day, "YYYY-MM-DD" -> XP (last 60 days). */
   dailyXp: Record<string, number>;
   reviewsDone: number;
+  /** Streak freezes held (max 2): each covers one missed day automatically. */
+  streakFreezes: number;
   chatTurns: number;
   /** Unlocked achievement ids (see achievements.ts). */
   achievements: string[];
@@ -49,11 +51,27 @@ export const TOTAL_NODES = UNITS.length * NODES_PER_UNIT;
 const DEFAULT: State = {
   configured: false, name: "", settingsAt: 0, native: "en", target: "es", persona: "barista",
   xp: 0, hearts: MAX_HEARTS, heartsRefillAt: null, streak: 0, lastActive: null,
-  progress: {}, dailyGoal: 20, dailyXp: {}, reviewsDone: 0, chatTurns: 0, achievements: [], rate: 1, dark: false, bestPron: 0, grammarWins: 0, rapidBest: 0,
+  progress: {}, dailyGoal: 20, dailyXp: {}, reviewsDone: 0, streakFreezes: 1, chatTurns: 0, achievements: [], rate: 1, dark: false, bestPron: 0, grammarWins: 0, rapidBest: 0,
 };
 
 export const SETTINGS_KEYS = ["name", "native", "target", "persona", "rate", "dark", "dailyGoal"] as const;
 export const DAILY_GOALS = [10, 20, 30, 50];
+
+export const MAX_FREEZES = 2;
+/**
+ * Streak update for activity today. Missed days are covered by freezes (one per day) if the
+ * learner has enough; otherwise the streak restarts. A freeze is earned every 7 streak days.
+ */
+export function nextStreak(prev: { streak: number; lastActive: string | null; streakFreezes: number }, day: string) {
+  if (prev.lastActive === day) return { streak: prev.streak, streakFreezes: prev.streakFreezes, streakUp: false, frozeDays: 0 };
+  const gap = prev.lastActive ? dayDiff(prev.lastActive, day) : Infinity;
+  let streak: number, freezes = prev.streakFreezes, frozeDays = 0;
+  if (gap === 1) streak = prev.streak + 1;
+  else if (gap > 1 && gap - 1 <= freezes) { frozeDays = gap - 1; freezes -= frozeDays; streak = prev.streak + 1; }
+  else streak = 1;
+  if (streak % 7 === 0) freezes = Math.min(MAX_FREEZES, freezes + 1);
+  return { streak, streakFreezes: freezes, streakUp: true, frozeDays };
+}
 
 export const levelFromXp = (xp: number) => Math.floor(xp / 100) + 1;
 
@@ -150,7 +168,7 @@ export function sanitize(raw: unknown): State {
   for (const [day, xp] of validDays) dailyXp[day] = Math.max(0, Number(xp));
   const count = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(0, Math.floor(Number(v))) : 0);
   const achievements = Array.isArray(r.achievements) ? [...new Set(r.achievements.filter((a): a is string => typeof a === "string"))] : [];
-  return { ...DEFAULT, ...(r as Partial<State>), name, native, target, persona, hearts, progress, dailyGoal, dailyXp, reviewsDone: count(r.reviewsDone), chatTurns: count(r.chatTurns), achievements };
+  return { ...DEFAULT, ...(r as Partial<State>), name, native, target, persona, hearts, progress, dailyGoal, dailyXp, reviewsDone: count(r.reviewsDone), chatTurns: count(r.chatTurns), achievements, streakFreezes: r.streakFreezes === undefined ? 1 : Math.min(MAX_FREEZES, count(r.streakFreezes)) };
 }
 
 export function useLingo() {
@@ -187,13 +205,12 @@ export function useLingo() {
 
   const addXp = useCallback((n: number) => {
     const t = today();
-    const streakUp = s.lastActive !== t;
-    const streak = streakUp ? (s.lastActive && dayDiff(s.lastActive, t) === 1 ? s.streak + 1 : 1) : s.streak;
+    const { streak, streakFreezes, streakUp, frozeDays } = nextStreak(s, t);
     const levelUp = levelFromXp(s.xp + n) > levelFromXp(s.xp);
     const todayXp = s.dailyXp[t] ?? 0;
     const goalReached = todayXp < s.dailyGoal && todayXp + n >= s.dailyGoal;
-    setS((p) => ({ ...p, xp: p.xp + n, streak, lastActive: t, dailyXp: { ...p.dailyXp, [t]: (p.dailyXp[t] ?? 0) + n } }));
-    return { levelUp, streakUp, goalReached };
+    setS((p) => ({ ...p, xp: p.xp + n, streak, streakFreezes, lastActive: t, dailyXp: { ...p.dailyXp, [t]: (p.dailyXp[t] ?? 0) + n } }));
+    return { levelUp, streakUp, goalReached, frozeDays };
   }, [s]);
 
   // Compatibility no-op: mistakes never consume lives or block learning.

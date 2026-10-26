@@ -31,6 +31,7 @@ export function mergeStates(local: State, remote: State): State {
     configured: local.configured || remote.configured,
     xp: Math.max(local.xp, remote.xp),
     streak: latestActive.streak,
+    streakFreezes: latestActive.streakFreezes,
     lastActive: latestActive.lastActive,
     bestPron: Math.max(local.bestPron, remote.bestPron),
     grammarWins: Math.max(local.grammarWins, remote.grammarWins),

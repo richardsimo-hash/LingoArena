@@ -45,6 +45,8 @@ export const S = {
   sendReport: ["Send", "Enviar", "Envoyer", "Senden", "Invia", "Enviar"],
   thanksReport: ["Thanks! We'll review it.", "¡Gracias! Lo revisaremos.", "Merci ! Nous allons vérifier.", "Danke! Wir prüfen das.", "Grazie! Lo controlleremo.", "Obrigado! Vamos rever."],
   // motivation
+  freezeUsed: ["A streak freeze saved your streak!", "¡Un protector de racha salvó tu racha!", "Un gel de série a sauvé ta série !", "Ein Serienschutz hat deine Serie gerettet!", "Un salva-serie ha salvato la tua serie!", "Um protetor salvou a tua sequência!"],
+  freezesHeld: ["Streak freezes", "Protectores de racha", "Gels de série", "Serienschutz", "Salva-serie", "Protetores de sequência"],
   dailyGoal: ["Daily goal", "Meta diaria", "Objectif du jour", "Tagesziel", "Obiettivo giornaliero", "Meta diária"],
   goalReached: ["Daily goal reached!", "¡Meta diaria cumplida!", "Objectif du jour atteint !", "Tagesziel erreicht!", "Obiettivo giornaliero raggiunto!", "Meta diária cumprida!"],
   achievementsT: ["Achievements", "Logros", "Succès", "Erfolge", "Traguardi", "Conquistas"],

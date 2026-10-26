@@ -42,3 +42,20 @@ describe("daily XP bookkeeping", () => {
     expect(m.achievements.sort()).toEqual(["first_lesson", "streak_3"]);
   });
 });
+
+import { nextStreak } from "@/lib/lingo/store";
+describe("streak freeze", () => {
+  it("continues on consecutive days and ignores repeat activity", () => {
+    expect(nextStreak({ streak: 3, lastActive: "2026-10-10", streakFreezes: 0 }, "2026-10-11")).toMatchObject({ streak: 4, frozeDays: 0 });
+    expect(nextStreak({ streak: 3, lastActive: "2026-10-11", streakFreezes: 0 }, "2026-10-11")).toMatchObject({ streak: 3, streakUp: false });
+  });
+  it("uses one freeze per missed day, else restarts", () => {
+    expect(nextStreak({ streak: 5, lastActive: "2026-10-10", streakFreezes: 1 }, "2026-10-12")).toMatchObject({ streak: 6, streakFreezes: 0, frozeDays: 1 });
+    expect(nextStreak({ streak: 5, lastActive: "2026-10-10", streakFreezes: 1 }, "2026-10-13")).toMatchObject({ streak: 1, streakFreezes: 1 });
+    expect(nextStreak({ streak: 5, lastActive: null, streakFreezes: 2 }, "2026-10-13")).toMatchObject({ streak: 1 });
+  });
+  it("earns a freeze every 7 days, up to 2", () => {
+    expect(nextStreak({ streak: 6, lastActive: "2026-10-10", streakFreezes: 0 }, "2026-10-11")).toMatchObject({ streak: 7, streakFreezes: 1 });
+    expect(nextStreak({ streak: 13, lastActive: "2026-10-10", streakFreezes: 2 }, "2026-10-11")).toMatchObject({ streak: 14, streakFreezes: 2 });
+  });
+});

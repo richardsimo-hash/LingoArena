@@ -42,6 +42,7 @@ export default function App() {
     const r = addXp(xp);
     sfx.correct();
     setBump((b) => b + 1);
+    if (r.frozeDays) toast(`🧊 ${t("freezeUsed")}`);
     if (r.goalReached) { setTimeout(sfx.levelUp, 250); toast.success(`🎯 ${t("goalReached")}`); }
     if (r.levelUp) { setTimeout(sfx.levelUp, 250); toast.success(`🏆 ${t("levelUp")} ${levelFromXp(s.xp + xp)}`); }
     else if (r.streakUp) { setTimeout(sfx.streak, 250); toast(`🔥 ${t("streakUp")}`); }
@@ -96,7 +97,7 @@ export default function App() {
             </select>
           </div>
           <div className="flex min-w-0 flex-wrap items-center justify-between gap-2 font-extrabold sm:justify-end sm:gap-4">
-            <span className="flex items-center gap-1 text-flame" title={t("streak")}><Flame className="h-5 w-5 shrink-0 fill-current sm:h-6 sm:w-6" />{s.streak}</span>
+            <span className="flex items-center gap-1 text-flame" title={t("streak")}><Flame className="h-5 w-5 shrink-0 fill-current sm:h-6 sm:w-6" />{s.streak}{s.streakFreezes > 0 && <span className="text-sm" title={`${t("freezesHeld")}: ${s.streakFreezes}`}>🧊{s.streakFreezes > 1 ? s.streakFreezes : ""}</span>}</span>
             <span key={bump} className="flex items-center gap-1 text-gem animate-pop" title="XP"><Gem className="h-5 w-5 shrink-0 sm:h-6 sm:w-6" />{s.xp}</span>
             <button onClick={() => update({ rate: s.rate === 1 ? 0.8 : 1 })} className="min-h-11 shrink-0 rounded-lg border-2 border-border px-2 py-1 text-xs" title={t("speed")}>{s.rate === 1 ? "1.0×" : "0.8×"}</button>
             <AudioControls />
