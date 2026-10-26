@@ -5,7 +5,7 @@
  * - /api/* and cross-origin requests are never cached (AI calls need the network; the
  *   on-device Whisper model is cached separately by Transformers.js).
  */
-const VERSION = "v2";
+const VERSION = "v4";
 const SHELL = `lingoarena-shell-${VERSION}`;
 const ASSETS = `lingoarena-assets-${VERSION}`;
 const STATIC = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon.svg"];
@@ -16,8 +16,23 @@ self.addEventListener("install", (event) => {
     await shell.addAll(STATIC);
     // Precache the JS/CSS the current index.html references, so the very first visit works offline next time.
     const html = await (await fetch("/", { cache: "no-store" })).text();
-    const files = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]);
-    if (files.length) await (await caches.open(ASSETS)).addAll(files);
+    const files = new Set([...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((m) => m[1]));
+    // Screens are lazy-loaded chunks: also precache every chunk the entry scripts reference,
+    // so screens the learner has not opened yet still work offline.
+    // Follow imports transitively (lazy screens import shared chunks of their own).
+    const queue = [...files].filter((f) => f.endsWith(".js"));
+    const scanned = new Set();
+    while (queue.length) {
+      const file = queue.shift();
+      if (scanned.has(file)) continue;
+      scanned.add(file);
+      const code = await (await fetch(file)).text();
+      for (const m of code.matchAll(/["'`](?:\.\/|\/assets\/)([\w.-]+\.(?:js|css))["'`]/g)) {
+        const found = `/assets/${m[1]}`;
+        if (!files.has(found)) { files.add(found); if (found.endsWith(".js")) queue.push(found); }
+      }
+    }
+    if (files.size) await (await caches.open(ASSETS)).addAll([...files]);
     await self.skipWaiting();
   })());
 });

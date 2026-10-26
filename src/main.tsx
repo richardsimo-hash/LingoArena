@@ -1,17 +1,18 @@
-import { StrictMode } from "react";
+import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
 import App from "./routes/index";
-import { AudioDebugPanel } from "./components/lingo/DebugPanel";
-import { IOSAudioTest } from "./components/lingo/IOSAudioTest";
-import { TestCenter } from "./components/lingo/TestCenter";
+// Diagnostic pages are separate chunks; learners never download them.
+const AudioDebugPanel = lazy(() => import("./components/lingo/DebugPanel").then((m) => ({ default: m.AudioDebugPanel })));
+const IOSAudioTest = lazy(() => import("./components/lingo/IOSAudioTest").then((m) => ({ default: m.IOSAudioTest })));
+const TestCenter = lazy(() => import("./components/lingo/TestCenter").then((m) => ({ default: m.TestCenter })));
 
 const route = window.location.pathname.replace(/\/$/, "");
 const Root = route === "/debug" ? AudioDebugPanel : route === "/ios-audio-test" ? IOSAudioTest : route === "/test" ? TestCenter : App;
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Root />
+    <Suspense fallback={null}><Root /></Suspense>
   </StrictMode>,
 );
 

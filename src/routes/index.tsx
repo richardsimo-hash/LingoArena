@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { Flame, Gem, Settings as SettingsIcon, Map, Mic, Swords, BarChart3, MessageCircle, Zap } from "lucide-react";
 import { toast, Toaster } from "sonner";
 import { NATIVES, TARGETS, type NativeLang, type TargetLang } from "@/lib/lingo/content";
@@ -10,11 +10,12 @@ import { useCloudSync } from "@/lib/lingo/sync";
 import { ACHIEVEMENTS, achievementTitle, newlyUnlocked } from "@/lib/lingo/achievements";
 import { AudioControls } from "@/components/lingo/ui";
 import { LearnPath } from "@/components/lingo/LearnPath";
-import { GrammarBattle } from "@/components/lingo/GrammarBattle";
-import { SpeechArena } from "@/components/lingo/SpeechArena";
-import { FreeChat } from "@/components/lingo/FreeChat";
-import { FireCombo } from "@/components/lingo/FireCombo";
-import { Stats } from "@/components/lingo/Stats";
+// Screens other than the path load on first use, keeping the first download small.
+const GrammarBattle = lazy(() => import("@/components/lingo/GrammarBattle").then((m) => ({ default: m.GrammarBattle })));
+const SpeechArena = lazy(() => import("@/components/lingo/SpeechArena").then((m) => ({ default: m.SpeechArena })));
+const FreeChat = lazy(() => import("@/components/lingo/FreeChat").then((m) => ({ default: m.FreeChat })));
+const FireCombo = lazy(() => import("@/components/lingo/FireCombo").then((m) => ({ default: m.FireCombo })));
+const Stats = lazy(() => import("@/components/lingo/Stats").then((m) => ({ default: m.Stats })));
 import { cn } from "@/lib/utils";
 
 const TABS = [
@@ -107,12 +108,14 @@ export default function App() {
       <main className="mx-auto w-full min-w-0 max-w-3xl px-3 py-5 sm:px-4 sm:py-6">
         <p className="mb-4 text-sm font-bold text-muted-foreground">{s.name && <span className="text-foreground">{t("hiName", { name: s.name })} · </span>}{t("learning")} {target.flag} {langName(s.target, s.native)} · {t("level")} {levelFromXp(s.xp)}</p>
         <DailyGoalBar xp={s.dailyXp[today()] ?? 0} goal={s.dailyGoal} label={t("dailyGoal")} />
+        <Suspense fallback={<div className="grid min-h-[40vh] place-items-center text-sm font-bold text-muted-foreground">…</div>}>
         {tab === "learn" && <LearnPath key={langKey} lingo={lingo} reward={reward} fail={fail} />}
         {tab === "arena" && <SpeechArena key={langKey} lingo={lingo} reward={reward} fail={fail} />}
         {tab === "grammar" && <GrammarBattle key={langKey} lingo={lingo} reward={reward} fail={fail} />}
         {tab === "fire" && <FireCombo key={langKey} lingo={lingo} reward={reward} />}
         {tab === "chat" && <FreeChat key={langKey} lingo={lingo} reward={reward} />}
         {tab === "stats" && <Stats lingo={lingo} />}
+        </Suspense>
       </main>
 
       {/* Mobile nav */}
