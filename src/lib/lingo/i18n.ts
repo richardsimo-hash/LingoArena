@@ -44,6 +44,9 @@ export const S = {
   commentOptional: ["Suggestion (optional)", "Sugerencia (opcional)", "Suggestion (facultatif)", "Vorschlag (optional)", "Suggerimento (facoltativo)", "Sugestão (opcional)"],
   sendReport: ["Send", "Enviar", "Envoyer", "Senden", "Invia", "Enviar"],
   thanksReport: ["Thanks! We'll review it.", "¡Gracias! Lo revisaremos.", "Merci ! Nous allons vérifier.", "Danke! Wir prüfen das.", "Grazie! Lo controlleremo.", "Obrigado! Vamos rever."],
+  // listening practice
+  listening2: ["Listening", "Escucha", "Écoute", "Hören", "Ascolto", "Escuta"],
+  playScene: ["Play scene", "Reproducir escena", "Lire la scène", "Szene abspielen", "Riproduci scena", "Reproduzir cena"],
   // missions
   modeFree: ["Free talk", "Charla libre", "Discussion libre", "Freies Gespräch", "Chiacchierata libera", "Conversa livre"],
   modeMissions: ["Missions", "Misiones", "Missions", "Missionen", "Missioni", "Missões"],

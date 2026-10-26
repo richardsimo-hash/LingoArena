@@ -9,6 +9,7 @@ import { INTERVALS, LESSONS_PER_REVIEW, dayNumber, deckStats, pickReview, type D
 import { Btn, Card, SpeakButtons, MicButton, useSpeech, ScoreBar, WordFeedback } from "./ui";
 import { PlacementTest } from "./PlacementTest";
 import { GrammarTip } from "./GrammarTip";
+import { ListeningPractice } from "./ListeningPractice";
 import { cn } from "@/lib/utils";
 
 const UNIT_STYLE = ["bg-primary text-primary-foreground", "bg-secondary text-secondary-foreground", "bg-flame text-primary-foreground", "bg-heart text-primary-foreground", "bg-accent text-accent-foreground"];
@@ -102,7 +103,7 @@ export function nextLesson(done: number[], startUnit = 0): number {
   return 0;
 }
 
-type View = { type: "placement" } | { type: "lesson"; node: number } | { type: "reviewPrompt" } | { type: "review"; ids: string[] } | { type: "reviewDone"; up: number; total: number } | null;
+type View = { type: "placement" } | { type: "listening"; unit: number } | { type: "lesson"; node: number } | { type: "reviewPrompt" } | { type: "review"; ids: string[] } | { type: "reviewDone"; up: number; total: number } | null;
 
 export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: number) => void; fail: () => void }) {
   const { s, done, deck, sinceReview, completeNode, finishReview, placedUnit, placementSeen, setPlacement } = lingo;
@@ -123,6 +124,9 @@ export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: 
     if (ids.length) setView({ type: "review", ids });
   };
 
+  if (view?.type === "listening") {
+    return <ListeningPractice lingo={lingo} unit={view.unit} reward={reward} onExit={() => setView(null)} />;
+  }
   if (view?.type === "placement") {
     return <PlacementTest lingo={lingo} onCancel={() => setView(null)} onFinish={(unit) => {
       setPlacement(unit);
@@ -216,7 +220,10 @@ export function LearnPath({ lingo, reward, fail }: { lingo: Lingo; reward: (xp: 
               <p className="text-xs font-extrabold uppercase opacity-80">{unit.level} · {t("unit")} {ui + 1}</p>
               <h2 className="text-2xl font-extrabold">{unit.emoji} {unitTitle(ui, s.native)}</h2>
               <p className="mt-1 text-sm font-bold opacity-80">{unit.focus} · {es ? "3 lecciones × 10 ejercicios" : "3 lessons × 10 exercises"}</p>
-              <button onClick={() => setTipUnit(tipUnit === ui ? null : ui)} className="mt-2 rounded-xl bg-black/15 px-3 py-1 text-xs font-extrabold">💡 {t("grammarTip")}</button>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button onClick={() => setTipUnit(tipUnit === ui ? null : ui)} className="rounded-xl bg-black/15 px-3 py-1 text-xs font-extrabold">💡 {t("grammarTip")}</button>
+                <button onClick={() => setView({ type: "listening", unit: ui })} className="rounded-xl bg-black/15 px-3 py-1 text-xs font-extrabold">🎧 {t("listening2")}</button>
+              </div>
             </div>
             {tipUnit === ui && <div className="-mt-3 mb-6"><GrammarTip lingo={lingo} unit={ui} onClose={() => setTipUnit(null)} /></div>}
             <div className="flex flex-col items-center gap-5">
