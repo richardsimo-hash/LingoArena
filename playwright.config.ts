@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "@playwright/test";
 
 /** End-to-end tests in real Chromium with a fake microphone that plays e2e/fixtures/speech.wav. */
@@ -8,6 +9,8 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:4174",
     permissions: ["microphone"],
-    launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", "--use-file-for-fake-audio-capture=e2e/fixtures/speech.wav", "--autoplay-policy=no-user-gesture-required"] },
+    // Full Chromium (new headless): the lightweight headless shell never resolves getUserMedia.
+    channel: "chromium",
+    launchOptions: { args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream", ...(process.env.E2E_NO_FILE ? [] : [`--use-file-for-fake-audio-capture=${fileURLToPath(new URL("./e2e/fixtures/speech.wav", import.meta.url))}`]), "--autoplay-policy=no-user-gesture-required"] },
   },
 });
