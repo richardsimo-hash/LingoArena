@@ -32,6 +32,6 @@ export default defineConfig({
   test: {
     environment: "node",
     // lingo_current/ is an old copy of the app kept in the repo; its tests target removed behaviour.
-    exclude: [...configDefaults.exclude, "lingo_current/**"],
+    exclude: [...configDefaults.exclude, "lingo_current/**", "e2e/**"],
   },
 });
