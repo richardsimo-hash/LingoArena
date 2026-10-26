@@ -18,6 +18,23 @@ function serverLog(requestId: string, stage: string, details: Record<string, unk
   const entry = JSON.stringify({ app: "lingoarena", route: "/api/stt", requestId, stage, at: new Date().toISOString(), ...details });
   if (level === "error") console.error(entry); else if (level === "warn") console.warn(entry); else console.info(entry);
 }
+/** OpenAI transcription, used when Gemini fails. Model: OPENAI_STT_MODEL. */
+async function openaiTranscribe(key: string, bytes: Buffer, mimeType: string, locale: string): Promise<string> {
+  const extension = /wav/.test(mimeType) ? "wav" : /mp4|m4a|aac/.test(mimeType) ? "mp4" : /ogg/.test(mimeType) ? "ogg" : "webm";
+  const form = new FormData();
+  form.append("file", new Blob([new Uint8Array(bytes)], { type: mimeType }), `speech.${extension}`);
+  form.append("model", process.env.OPENAI_STT_MODEL || "gpt-4o-mini-transcribe");
+  form.append("language", locale.slice(0, 2).toLowerCase());
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST", signal: AbortSignal.timeout(15_000), headers: { Authorization: `Bearer ${key}` }, body: form,
+  });
+  if (!response.ok) throw new Error(`openai_stt_http_${response.status}: ${(await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200)}`);
+  const data = await response.json() as { text?: string };
+  const text = (data.text || "").trim();
+  if (!text) throw new Error("openai_stt_empty");
+  return text;
+}
+
 export default async function handler(req: RequestLike, res: ResponseLike) {
   const incomingId = req.headers?.["x-lingo-request-id"];
   const requestId = (Array.isArray(incomingId) ? incomingId[0] : incomingId) || req.body?.diagnosticId || `stt-server-${Date.now().toString(36)}`;
@@ -78,7 +95,27 @@ export default async function handler(req: RequestLike, res: ResponseLike) {
       }
     }
     providerFailure = failures.join(" | ").slice(0, 480) || providerFailure;
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (openaiKey) {
+      try {
+        const text = await openaiTranscribe(openaiKey, bytes, mimeType, locale);
+        serverLog(requestId, "transcription_succeeded", { provider: "openai", transcriptLength: text.length, elapsedMs: Date.now() - startedAt, afterGemini: providerFailure.slice(0, 200) });
+        return res.status(200).json({ text, provider: "openai", diagnosticId: requestId });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        serverLog(requestId, "provider_failed", { provider: "openai", error: message.slice(0, 300), elapsedMs: Date.now() - startedAt }, "warn");
+        providerFailure = `${providerFailure} | openai: ${message.slice(0, 160)}`;
+      }
+    }
     return res.status(providerStatus === 504 ? 503 : providerStatus).json({ ok: false, error: providerStatus === 429 ? "gemini_stt_rate_limited" : "gemini_stt_unavailable", details: providerFailure, provider: "gemini", status: providerStatus, diagnosticId: requestId, fallback: "browser_speech_recognition" });
+  }
+  if (process.env.OPENAI_API_KEY) {
+    try {
+      const text = await openaiTranscribe(process.env.OPENAI_API_KEY, bytes, mimeType, locale);
+      return res.status(200).json({ text, provider: "openai", diagnosticId: requestId });
+    } catch (error) {
+      return res.status(503).json({ ok: false, error: "stt_unavailable", details: error instanceof Error ? error.message.slice(0, 300) : String(error), provider: "openai", status: 503, diagnosticId: requestId });
+    }
   }
   serverLog(requestId, "provider_key_missing", { expectedVariables: ["GEMINI_API_KEY", "GEMINI_KEY"] }, "error");
   return res.status(503).json({ ok: false, error: "gemini_missing_key", provider: "gemini", status: 503, diagnosticId: requestId, fallback: "browser_speech_recognition" });

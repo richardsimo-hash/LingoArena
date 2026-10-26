@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 // Keep the health function self-contained so Vercel does not need to resolve a shared server import.
 type RequestLike = { headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } };
 const healthWindows = new Map<string, { count: number; resetAt: number }>();
@@ -32,19 +33,49 @@ async function checkGemini(): Promise<ProviderStatus> {
     return "provider_error";
   } catch (e) { return e instanceof Error && /timeout|abort/i.test(`${e.name} ${e.message}`) ? "timeout" : "provider_error"; }
 }
+/** Free check (no tokens): the key works and the configured model is available. */
+async function checkOpenAi(): Promise<ProviderStatus> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) return "missing_key";
+  try {
+    const r = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(process.env.OPENAI_CHAT_MODEL || "gpt-4.1-mini")}`, { signal: AbortSignal.timeout(10000), headers: { Authorization: `Bearer ${key}` } });
+    if (r.ok) return "ok";
+    if (r.status === 401 || r.status === 403) return "unauthorized";
+    if (r.status === 404) return "model_not_found";
+    if (r.status === 429) return "rate_limited";
+    return "provider_error";
+  } catch (e) { return e instanceof Error && /timeout|abort/i.test(`${e.name} ${e.message}`) ? "timeout" : "provider_error"; }
+}
+/** Free check via the Models API (no tokens): the key works and the configured Claude model exists. */
+async function checkClaude(): Promise<ProviderStatus> {
+  const key = process.env.ANTHROPIC_API_KEY;
+  if (!key) return "missing_key";
+  try {
+    await new Anthropic({ apiKey: key, maxRetries: 0, timeout: 10_000 }).models.retrieve(process.env.CLAUDE_CHAT_MODEL || "claude-opus-5-5");
+    return "ok";
+  } catch (e) {
+    if (e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError) return "unauthorized";
+    if (e instanceof Anthropic.NotFoundError) return "model_not_found";
+    if (e instanceof Anthropic.RateLimitError) return "rate_limited";
+    if (e instanceof Anthropic.APIConnectionTimeoutError) return "timeout";
+    return "provider_error";
+  }
+}
 export default async function handler(req: { method?: string; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void } }) {
   try {
   if (req.method !== "GET") return res.status(405).json({ ok: false, error: "method_not_allowed", status: 405 });
   const rate = checkHealthRateLimit(req, 8);
   if (!rate.allowed) { res.setHeader("Retry-After", String(rate.retryAfterSeconds)); return res.status(429).json({ ok: false, error: "rate_limited", status: 429, retryAfterSeconds: rate.retryAfterSeconds }); }
   res.setHeader("Cache-Control", "no-store");
-  const gemini = await checkGemini();
+  const [gemini, openai, claude] = await Promise.all([checkGemini(), checkOpenAi(), checkClaude()]);
   return res.status(200).json({
     ok: true,
-    providers: { gemini },
-    models: { geminiChat: process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash-lite", geminiTts: process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts", geminiStt: process.env.GEMINI_STT_MODEL || "gemini-3.8-flash" },
+    providers: { gemini, openai, claude },
+    models: { openaiChat: process.env.OPENAI_CHAT_MODEL || "gpt-4.1-mini", claudeChat: process.env.CLAUDE_CHAT_MODEL || "claude-opus-5-5", geminiChat: process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash-lite", geminiTts: process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts", geminiStt: process.env.GEMINI_STT_MODEL || "gemini-3.8-flash" },
     runtime: { node: process.version, region: process.env.VERCEL_REGION || "unknown", deployment: process.env.VERCEL_ENV || "unknown" },
-    configured: { gemini: Boolean(process.env.GEMINI_API_KEY || process.env.GEMINI_KEY) },
+    // Backups are reported as configured or not; they are only called when Gemini fails.
+    configured: { gemini: Boolean(process.env.GEMINI_API_KEY || process.env.GEMINI_KEY), openai: Boolean(process.env.OPENAI_API_KEY), anthropic: Boolean(process.env.ANTHROPIC_API_KEY) },
+    fallbackOrder: { chat: ["gemini", "openai", "claude"], stt: ["gemini", "openai"], tts: ["gemini", "openai", "browser"] },
     keySource: { gemini: process.env.GEMINI_API_KEY ? "GEMINI_API_KEY" : process.env.GEMINI_KEY ? "GEMINI_KEY" : "missing" },
     checkedAt: new Date().toISOString(), sessionTokenBudget: Number(process.env.SESSION_TOKEN_BUDGET || 60000),
   });

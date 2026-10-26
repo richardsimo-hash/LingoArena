@@ -1,3 +1,4 @@
+import Anthropic from "@anthropic-ai/sdk";
 export const config = { maxDuration: 60 };
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type Body = {
@@ -122,6 +123,86 @@ async function geminiStream(key: string, model: string, system: string, messages
   return written;
 }
 
+function setStreamHeaders(res: StreamingResponse) {
+  res.setHeader?.("Content-Type", "text/plain; charset=utf-8"); res.setHeader?.("Cache-Control", "no-store"); res.setHeader?.("X-Accel-Buffering", "no");
+  if (res.statusCode !== undefined) res.statusCode = 200;
+  res.flushHeaders?.();
+}
+
+/** OpenAI Chat Completions streaming (SSE). Backup when Gemini fails. Model: OPENAI_CHAT_MODEL. */
+async function openaiStream(key: string, system: string, messages: ChatMessage[], res: StreamingResponse): Promise<number> {
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST", signal: timeoutSignal(20000),
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model: process.env.OPENAI_CHAT_MODEL || "gpt-4.1-mini", stream: true, max_completion_tokens: 300, messages: [{ role: "system", content: system }, ...messages] }),
+  });
+  if (!response.ok || !response.body) throw new Error(`openai_chat_http_${response.status}:${(await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200)}`);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "", written = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        try {
+          const text = (JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] }).choices?.[0]?.delta?.content || "";
+          if (text) { if (!written) setStreamHeaders(res); res.write?.(text); written += text.length; }
+        } catch { /* partial line */ }
+      }
+    }
+  } catch (error) {
+    if (written) return written;
+    throw error;
+  }
+  return written;
+}
+
+/**
+ * Anthropic Claude streaming via the official SDK. Last backup. Model: CLAUDE_CHAT_MODEL
+ * (default claude-opus-5-5; claude-haiku-5-5 is far cheaper for short spoken replies).
+ * Low effort suits short conversational turns; Anthropic's server-side refusal fallback is enabled
+ * on the models that support it.
+ */
+async function claudeStream(key: string, system: string, messages: ChatMessage[], res: StreamingResponse): Promise<number> {
+  const model = process.env.CLAUDE_CHAT_MODEL || "claude-opus-5-5";
+  const client = new Anthropic({ apiKey: key, maxRetries: 0, timeout: 20_000 });
+  // The Messages API requires the conversation to start with a user turn.
+  const turns: Anthropic.Beta.BetaMessageParam[] = messages.map((m) => ({ role: m.role, content: m.content }));
+  if (!turns.length || turns[0]!.role !== "user") turns.unshift({ role: "user", content: "(Conversation start.)" });
+  const supportsFallbacks = /^claude-(opus-5-5|opus-5|fable-5-1|sonnet-5-5)$/.test(model);
+  const stream = client.beta.messages.stream({
+    model,
+    max_tokens: 4000, // includes adaptive thinking; replies themselves are 1-3 sentences
+    system,
+    messages: turns,
+    output_config: { effort: "low" },
+    ...(supportsFallbacks ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
+  });
+  let written = 0;
+  try {
+    for await (const event of stream) {
+      if (event.type === "content_block_delta" && event.delta.type === "text_delta" && event.delta.text) {
+        if (!written) setStreamHeaders(res);
+        res.write?.(event.delta.text); written += event.delta.text.length;
+      }
+    }
+    const final = await stream.finalMessage();
+    if (!written && final.stop_reason === "refusal") throw new Error("claude_refusal");
+  } catch (error) {
+    if (written) return written;
+    if (error instanceof Anthropic.APIError) throw new Error(`claude_chat_http_${error.status ?? 0}:${error.message.slice(0, 160)}`);
+    throw error;
+  }
+  return written;
+}
+
 export default async function handler(req: { method?: string; body?: Body; headers?: Record<string, string | string[] | undefined>; socket?: { remoteAddress?: string } }, res: { setHeader?: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void } }) {
   try {
   if (req.method !== "POST") return res.status(405).json({ ok: false, error: "method_not_allowed", provider: "none", status: 405 });
@@ -159,22 +240,35 @@ export default async function handler(req: { method?: string; body?: Body; heade
     summary ? `Earlier context summary: ${summary}` : "",
   ].filter(Boolean).join(" ");
   const geminiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
-  if (data.stream && geminiKey) {
-    // Live conversation: stream the reply. Try the chat model, then a lighter fallback, before any text is sent.
-    const models = [...new Set([process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-flash-latest"])];
+  if (data.stream) {
+    // Live conversation: stream the reply. Providers are tried in order (Gemini models, then OpenAI,
+    // then Claude) only until one has written text, so a learner never hears two answers spliced together.
     const failures: string[] = [];
     const out = res as StreamingResponse;
-    for (const model of models) {
-      try {
-        const written = await geminiStream(geminiKey, model, system, history, out);
-        if (written) { out.end?.(); return; }
-        failures.push(`${model}: empty`);
-      } catch (error) {
-        failures.push(`${model}: ${statusOf(error)}`);
+    const attempts: { name: string; run: () => Promise<number> }[] = [];
+    if (geminiKey) {
+      for (const model of [...new Set([process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-flash-latest"])]) {
+        attempts.push({ name: `gemini:${model}`, run: () => geminiStream(geminiKey, model, system, history, out) });
       }
     }
-    console.warn("[LingoArena API] Gemini stream failed", failures.join(" | "));
-    return res.status(503).json({ ok: false, error: "gemini_unavailable", provider: "gemini", status: 503, details: { gemini: failures.join(" | ").slice(0, 300) }, fallback: "local_phrasebook" });
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (openaiKey) attempts.push({ name: "openai", run: () => openaiStream(openaiKey, system, history, out) });
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    if (anthropicKey) attempts.push({ name: "claude", run: () => claudeStream(anthropicKey, system, history, out) });
+    for (const attempt of attempts) {
+      try {
+        const written = await attempt.run();
+        if (written) {
+          if (attempt !== attempts[0]) console.warn("[LingoArena API] chat served by fallback", attempt.name, failures.join(" | "));
+          out.end?.(); return;
+        }
+        failures.push(`${attempt.name}: empty`);
+      } catch (error) {
+        failures.push(`${attempt.name}: ${statusOf(error)}`);
+      }
+    }
+    console.warn("[LingoArena API] all chat providers failed", failures.join(" | ") || "no provider keys configured");
+    return res.status(503).json({ ok: false, error: attempts.length ? "ai_unavailable" : "ai_missing_keys", provider: "none", status: 503, details: { providers: (failures.join(" | ") || "set GEMINI_API_KEY, OPENAI_API_KEY or ANTHROPIC_API_KEY").slice(0, 300) }, fallback: "local_phrasebook" });
   }
   const cacheKey = JSON.stringify({ target, native, cefr, accent, persona, summary, history });
   const cached = requestCache.get(cacheKey);

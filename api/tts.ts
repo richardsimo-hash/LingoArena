@@ -138,6 +138,19 @@ async function geminiTts(text: string, locale: string): Promise<{ bytes: Uint8Ar
   return { bytes, mimeType: audio.mime_type || "audio/wav" };
 }
 
+/** OpenAI text-to-speech (MP3), used when Gemini fails. Model/voice: OPENAI_TTS_MODEL, OPENAI_TTS_VOICE. */
+async function openaiTts(text: string, rate: number): Promise<TtsResult> {
+  const key = process.env.OPENAI_API_KEY;
+  if (!key) throw new Error("openai_missing_key");
+  const response = await fetch("https://api.openai.com/v1/audio/speech", {
+    method: "POST", signal: AbortSignal.timeout(20_000),
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({ model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts", voice: process.env.OPENAI_TTS_VOICE || "nova", input: text, response_format: "mp3", speed: Math.min(1.5, Math.max(0.7, rate || 1)) }),
+  });
+  if (!response.ok) throw new Error(`openai_tts_http_${response.status}: ${(await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200)}`);
+  return { bytes: new Uint8Array(await response.arrayBuffer()), mimeType: "audio/mpeg" };
+}
+
 export default async function handler(req: RequestLike, res: ResponseLike): Promise<void> {
   try {
     if (req.method !== "POST") {
@@ -158,7 +171,22 @@ export default async function handler(req: RequestLike, res: ResponseLike): Prom
     }
 
     const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
+    const rateValue = Number(req.body?.rate) || 1;
+    // OpenAI is the backup voice when Gemini is missing or fails.
+    const tryOpenAi = async (geminiDetail: string): Promise<boolean> => {
+      if (!process.env.OPENAI_API_KEY) return false;
+      try {
+        const result = await openaiTts(text, rateValue);
+        console.warn("[LingoArena TTS] served by OpenAI after Gemini failure", geminiDetail.slice(0, 200));
+        sendAudio(res, result.bytes, "audio/mpeg");
+        return true;
+      } catch (error) {
+        console.error("[LingoArena TTS] OpenAI fallback failed", safeError(error));
+        return false;
+      }
+    };
     if (!geminiApiKey) {
+      if (await tryOpenAi("gemini_missing_key")) return;
       res.status(503).json({ ok: false, error: "gemini_missing_key", provider: "gemini", fallback: "browser_speech_synthesis" });
       return;
     }
@@ -170,6 +198,7 @@ export default async function handler(req: RequestLike, res: ResponseLike): Prom
       const detail = safeError(error);
       const classified = classifyTtsError(error);
       console.error("[LingoArena TTS] Gemini request failed", { code: classified.code, detail });
+      if (await tryOpenAi(detail)) return;
       if (classified.retryAfterSeconds) res.setHeader("Retry-After", String(classified.retryAfterSeconds));
       res.status(classified.status).json({
         ok: false,

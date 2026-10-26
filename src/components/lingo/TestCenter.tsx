@@ -159,9 +159,13 @@ export function TestCenter() {
     health: async () => {
       const response = await fetch("/api/health", { cache: "no-store" });
       if (!(response.headers.get("content-type") || "").includes("json")) return { status: "fail", detail: `HTTP ${response.status} returned ${response.headers.get("content-type") || "no content type"}, not JSON: the API is not deployed on this host.` };
-      const body = await response.json().catch(() => ({})) as { providers?: { gemini?: string }; models?: Record<string, string> };
-      const gemini = body.providers?.gemini || "unknown";
-      return { status: response.ok && gemini === "ok" ? "pass" : "fail", detail: `HTTP ${response.status} · gemini=${gemini} · ${Object.entries(body.models || {}).map(([k, v]) => `${k}=${v}`).join(" · ")}`, data: { httpStatus: response.status, gemini } };
+      const body = await response.json().catch(() => ({})) as { providers?: Record<string, string>; models?: Record<string, string> };
+      const providers = body.providers || {};
+      const gemini = providers.gemini || "unknown";
+      const backups = Object.entries(providers).filter(([name]) => name !== "gemini");
+      // Gemini is primary; a backup that is not "ok" is a warning, not a failure.
+      const status: Status = !response.ok || gemini !== "ok" ? (backups.some(([, v]) => v === "ok") ? "warn" : "fail") : backups.every(([, v]) => v === "ok") ? "pass" : "warn";
+      return { status, detail: `HTTP ${response.status} · ${Object.entries(providers).map(([k, v]) => `${k}=${v}`).join(" · ")}`, data: { httpStatus: response.status, ...providers } };
     },
     cloudStt: async () => {
       const pcm = recordingRef.current;
