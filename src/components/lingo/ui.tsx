@@ -7,6 +7,7 @@ import { startLiveCapture, type LiveCapture } from "@/lib/liveCapture";
 import { AudioDebugPanel } from "@/components/lingo/DebugPanel";
 import { logDiagnostic } from "@/lib/diagnostics";
 import { makeT } from "@/lib/lingo/i18n";
+import type { SpeechCompare } from "@/lib/lingo/engine";
 import type { NativeLang } from "@/lib/lingo/content";
 
 type V = "primary" | "secondary" | "ghost" | "danger" | "warn";
@@ -301,6 +302,33 @@ export function ScoreBar({ label, value }: { label: string; value: number }) {
       <div className="mb-1 flex justify-between text-xs font-bold uppercase text-muted-foreground"><span>{label}</span><span>{value}%</span></div>
       <div className="h-3 overflow-hidden rounded-full bg-muted">
         <div className={cn("h-full rounded-full transition-all duration-700", value >= 80 ? "bg-primary" : value >= 50 ? "bg-flame" : "bg-destructive")} style={{ width: `${value}%` }} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Word-by-word pronunciation feedback: green words were recognised, red ones were not. Tapping a
+ * word plays it slowly; "Hear it slowly" plays the whole phrase at 0.6x.
+ */
+export function WordFeedback({ result, heard, text, locale, native, big = false }: { result: SpeechCompare; heard?: string; text: string; locale: string; native: NativeLang; big?: boolean }) {
+  const t = makeT(native);
+  const missed = result.words.filter((w) => !w.ok).map((w) => w.w.replace(/[¿?¡!.,;:«»“”"]/g, ""));
+  return (
+    <div className="space-y-2">
+      <div className={cn("flex flex-wrap justify-center gap-1.5 font-extrabold", big ? "text-3xl" : "text-xl")}>
+        {result.words.map((w, k) => (
+          <button key={k} type="button" onClick={() => speak(w.w.replace(/[¿?¡!.,;:«»“”"]/g, ""), { lang: locale, rate: 0.6 })} title={t("hearSlowly")}
+            className={cn("rounded-lg px-1.5 underline decoration-dotted underline-offset-4 transition hover:scale-105", w.ok ? "bg-success-soft text-success" : "bg-danger-soft text-destructive")}>
+            {w.w}
+          </button>
+        ))}
+      </div>
+      {heard && <p className="text-center text-sm text-muted-foreground">{t("weHeard")}: “{heard}”</p>}
+      {missed.length > 0 && <p className="text-center text-sm font-bold">{t("practiceWords", { words: missed.join(", ") })}</p>}
+      <div className="flex items-center justify-center gap-3">
+        <button type="button" onClick={() => speak(text, { lang: locale, rate: 0.6 })} className="rounded-xl border-2 border-border px-3 py-1.5 text-xs font-extrabold hover:bg-muted">🐢 {t("hearSlowly")}</button>
+        <span className="text-xs text-muted-foreground">{t("tapWordHint")}</span>
       </div>
     </div>
   );

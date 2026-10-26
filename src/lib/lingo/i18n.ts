@@ -27,6 +27,11 @@ export const S = {
   transcribingRec: ["Transcribing your recording…", "Transcribiendo tu grabación…", "Transcription de ton enregistrement…", "Deine Aufnahme wird transkribiert…", "Trascrizione della registrazione…", "A transcrever a gravação…"],
   typeSaid: ["Type what you said", "Escribe lo que dijiste", "Écris ce que tu as dit", "Schreib, was du gesagt hast", "Scrivi cosa hai detto", "Escreve o que disseste"],
   cantSpeak: ["Can't speak now", "No puedo hablar ahora", "Je ne peux pas parler", "Kann gerade nicht sprechen", "Non posso parlare ora", "Não posso falar agora"],
+  // pronunciation feedback
+  tapWordHint: ["Tap a word to hear it slowly.", "Toca una palabra para oírla despacio.", "Touche un mot pour l'entendre lentement.", "Tippe auf ein Wort, um es langsam zu hören.", "Tocca una parola per sentirla lentamente.", "Toca numa palavra para a ouvir devagar."],
+  hearSlowly: ["Hear it slowly", "Escúchala despacio", "Écouter lentement", "Langsam anhören", "Ascolta lentamente", "Ouvir devagar"],
+  weHeard: ["We heard", "Escuchamos", "Nous avons entendu", "Wir haben gehört", "Abbiamo sentito", "Ouvimos"],
+  practiceWords: ["Practise: {words}", "Practica: {words}", "Entraîne-toi : {words}", "Übe: {words}", "Esercitati: {words}", "Pratica: {words}"],
   // motivation
   dailyGoal: ["Daily goal", "Meta diaria", "Objectif du jour", "Tagesziel", "Obiettivo giornaliero", "Meta diária"],
   goalReached: ["Daily goal reached!", "¡Meta diaria cumplida!", "Objectif du jour atteint !", "Tagesziel erreicht!", "Obiettivo giornaliero raggiunto!", "Meta diária cumprida!"],

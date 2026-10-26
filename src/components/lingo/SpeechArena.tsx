@@ -5,7 +5,7 @@ import { compareSpeech, makeDeck, shuffle, type SpeechCompare } from "@/lib/ling
 import { langName, makeT } from "@/lib/lingo/i18n";
 import type { Lingo } from "@/lib/lingo/store";
 import { sfx, speak, stopSpeaking } from "@/lib/voice";
-import { Btn, Card, MicButton, SpeakButtons, useSpeech } from "./ui";
+import { Btn, Card, MicButton, SpeakButtons, useSpeech, WordFeedback } from "./ui";
 import { cn } from "@/lib/utils";
 
 export function SpeechArena(props: { lingo: Lingo; reward: (xp: number) => void; fail: () => void }) {
@@ -66,10 +66,10 @@ function Duel({ lingo, reward }: { lingo: Lingo; reward: (xp: number) => void })
     <div className="space-y-5">
       <Card className="text-center">
         <p className="text-xs font-extrabold uppercase text-muted-foreground">{t("sayIn", { lang: langName(s.target, s.native) })}</p>
-        <div className="my-4 flex flex-wrap justify-center gap-1.5 text-3xl font-extrabold">
-          {res && !speech.listening ? res.words.map((w, k) => (
-            <span key={k} className={cn("rounded-lg px-1.5 transition", w.ok ? "bg-success-soft text-success" : "bg-danger-soft text-destructive")}>{w.w}</span>
-          )) : <span>{target}</span>}
+        <div className="my-4">
+          {res && !speech.listening
+            ? <WordFeedback big result={res} text={target} locale={tg.locale} native={s.native} />
+            : <p className="text-center text-3xl font-extrabold">{target}</p>}
         </div>
         <p className="mb-4 text-muted-foreground">“{c.tr[s.native]}”</p>
         <div className="flex justify-center"><SpeakButtons text={target} locale={tg.locale} rate={s.rate} native={s.native} /></div>
