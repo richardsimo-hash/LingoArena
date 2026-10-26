@@ -54,7 +54,7 @@ export async function chatReply(data: ChatInput): Promise<Reply> {
   }
 }
 
-export type StreamInput = ChatInput & { topic?: string; previousTopics?: string[]; nudge?: boolean; learnerName?: string };
+export type StreamInput = ChatInput & { topic?: string; previousTopics?: string[]; nudge?: boolean; learnerName?: string; mission?: { role: string; scene: string; goals: { id: string; ai: string }[] } };
 
 /**
  * Streams the tutor's reply. `onText` receives the full text so far on every chunk, so the
@@ -96,9 +96,13 @@ export async function chatStream(data: StreamInput, onText: (textSoFar: string) 
 }
 
 /** Splits streamed tutor text into the spoken part and an optional "§" correction line. */
-export function splitReply(text: string): { reply: string; correction: string } {
-  const at = text.indexOf("§");
-  return at < 0 ? { reply: text.trim(), correction: "" } : { reply: text.slice(0, at).trim(), correction: text.slice(at + 1).trim() };
+export function splitReply(text: string): { reply: string; correction: string; goals: string[] } {
+  // Mission goal line ("¶ g1,g3") comes last; the spoken reply never includes it or the § line.
+  const pilcrow = text.indexOf("¶");
+  const goals = pilcrow < 0 ? [] : (text.slice(pilcrow + 1).match(/g\d+/g) ?? []);
+  const body = pilcrow < 0 ? text : text.slice(0, pilcrow);
+  const at = body.indexOf("§");
+  return at < 0 ? { reply: body.trim(), correction: "", goals } : { reply: body.slice(0, at).trim(), correction: body.slice(at + 1).trim(), goals };
 }
 
 /** On-device open conversation when the AI backend is not configured. */

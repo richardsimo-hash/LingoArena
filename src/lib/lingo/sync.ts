@@ -41,6 +41,7 @@ export function mergeStates(local: State, remote: State): State {
     reviewsDone: Math.max(local.reviewsDone, remote.reviewsDone),
     chatTurns: Math.max(local.chatTurns, remote.chatTurns),
     achievements: [...new Set([...local.achievements, ...remote.achievements])],
+    missionsDone: [...new Set([...local.missionsDone, ...remote.missionsDone])],
   };
 }
 

@@ -6,6 +6,8 @@ type Body = {
   cefr?: string; accent?: string; rollingSummary?: string; sessionTokensUsed?: number;
   /** Stream plain text (reply, then an optional "§ correction" line) instead of JSON. */
   stream?: boolean; topic?: string; previousTopics?: string[]; nudge?: boolean; learnerName?: string;
+  /** Roleplay mission: the tutor plays `role` in `scene`; goals are tracked via a final "¶" line. */
+  mission?: { role?: string; scene?: string; goals?: { id?: string; ai?: string }[] };
 };
 type StreamingResponse = { setHeader?: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void }; write?: (chunk: string) => void; end?: () => void; flushHeaders?: () => void; statusCode?: number };
 const PERSONA_STYLE: Record<string, string> = {
@@ -85,6 +87,17 @@ async function geminiChat(key: string, system: string, messages: ChatMessage[]) 
   if (!text) throw new Error("gemini_chat_empty");
   return text;
 }
+/** Roleplay instructions: stay in character and report achieved goal ids on a final "¶" line. */
+function missionPrompt(mission: Body["mission"]): string {
+  if (!mission?.role || !Array.isArray(mission.goals) || !mission.goals.length) return "";
+  const goals = mission.goals.slice(0, 5).map((goal) => `${String(goal.id).replace(/[^a-z0-9]/gi, "").slice(0, 8)}: the learner ${String(goal.ai || "").slice(0, 120)}`).join("; ");
+  return [
+    `ROLEPLAY MISSION. Play ${String(mission.role).slice(0, 120)}. Scene: ${String(mission.scene || "").slice(0, 200)} Stay in character; keep the scene moving with short natural lines and give the learner chances to reach the goals without doing it for them.`,
+    `Goals: ${goals}.`,
+    `After your reply (and after any § line), ALWAYS add one final line starting with "¶" listing the ids of every goal the learner has achieved so far in the whole conversation, e.g. "¶ g1,g3", or just "¶" if none. When all goals are achieved, warmly wrap up the scene and say the mission is complete.`,
+  ].join(" ");
+}
+
 /** Streams Gemini text to the client as it is generated, so speech can start on the first sentence. */
 async function geminiStream(key: string, model: string, system: string, messages: ChatMessage[], res: StreamingResponse): Promise<number> {
   const contents = messages.map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
@@ -232,6 +245,7 @@ export default async function handler(req: { method?: string; body?: Body; heade
     `You are Chloe, a warm, curious language tutor having a live spoken conversation. Persona: ${persona}. Learner speaks ${native}, learns ${target}, CEFR ${cefr}, accent ${accent}.`,
     `Speak only in ${target}, at ${cefr} level. Sound like a real person on a call: 1-3 short, natural sentences, contractions, no lists, markdown or emoji. React to what the learner actually said with a genuine comment or a short personal detail, then ask exactly one open, specific follow-up question so they keep talking. Never lecture.`,
     topic ? `Current topic: ${topic}. Stay on it while it is going well. If answers get very short or the topic has had about 6 exchanges, smoothly bridge to a fresh everyday topic${previousTopics.length ? ` (avoid: ${previousTopics.join(", ")})` : ""}.` : "Pick common, everyday topics and change topic smoothly when one runs dry.",
+    missionPrompt(data.mission),
     learnerName ? `The learner's name is ${learnerName}. Greet them by name at the start and use it naturally now and then (not every turn).` : "",
     `If the learner seems lost, simplify your language. If they use ${native}, gently answer in ${target} with simpler words. Recast errors naturally inside your reply; do not overcorrect.`,
     data.stream

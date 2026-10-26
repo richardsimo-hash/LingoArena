@@ -4,6 +4,7 @@ import { PERSONAS, TARGETS } from "@/lib/lingo/content";
 import { chatStream, localChat, splitReply } from "@/lib/lingo/chat.functions";
 import { createSentenceSpeaker } from "@/lib/lingo/sentenceSpeaker";
 import { NUDGES, TOPICS, randomTopic, topicLabel, type Topic } from "@/lib/lingo/topics";
+import { MISSIONS, missionText, type Mission } from "@/lib/lingo/missions";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { speak, stopSpeaking, unlockAudio, getAccent, naturalVoiceEnabled } from "@/lib/voice";
 import type { Lingo } from "@/lib/lingo/store";
@@ -63,6 +64,14 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   const topicRef = useRef(topic);
   topicRef.current = topic;
   const usedTopicsRef = useRef<string[]>([]);
+  const [mode, setMode] = useState<"free" | "missions">("free");
+  const [mission, setMission] = useState<Mission | null>(null);
+  const missionRef = useRef<Mission | null>(null);
+  missionRef.current = mission;
+  const [goalsDone, setGoalsDone] = useState<string[]>([]);
+  const goalsDoneRef = useRef<string[]>([]);
+  const [missionWon, setMissionWon] = useState(false);
+  const missionWonRef = useRef(false);
   const speakerRef = useRef<ReturnType<typeof createSentenceSpeaker> | null>(null);
   const [savedChat, setSavedChat] = useState<SavedChat | null>(() => loadChat(s.target));
   useEffect(() => { setSavedChat(loadChat(s.target)); }, [s.target]);
@@ -154,6 +163,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
       previousTopics: usedTopicsRef.current,
       nudge: extra.nudge,
       learnerName: s.name,
+      mission: missionRef.current ? { role: missionRef.current.role, scene: missionRef.current.scene, goals: missionRef.current.goals.map((goal) => ({ id: goal.id, ai: goal.ai })) } : undefined,
     }, (textSoFar) => {
       if (phaseRef.current !== "chat" || speakerRef.current !== speaker) return;
       const { reply } = splitReply(textSoFar);
@@ -161,7 +171,17 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     });
     if (phaseRef.current !== "chat" || speakerRef.current !== speaker) return;
     if (r.ok) {
-      const { reply, correction } = splitReply(r.text);
+      const { reply, correction, goals } = splitReply(r.text);
+      const active = missionRef.current;
+      if (active && goals.length) {
+        // Goals only ever get ticked, never unticked, even if a later reply lists fewer.
+        const merged = [...new Set([...goalsDoneRef.current, ...goals.filter((id) => active.goals.some((goal) => goal.id === id))])];
+        goalsDoneRef.current = merged; setGoalsDone(merged);
+        if (merged.length === active.goals.length && !missionWonRef.current) {
+          missionWonRef.current = true; setMissionWon(true);
+          reward(30); lingo.completeMission(active.id);
+        }
+      }
       sessionTokensRef.current += estimatedInputTokens + Math.ceil(r.text.length / 4);
       setOffline(false); setOfflineReason("");
       showReply(reply, correction);
@@ -197,7 +217,15 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     setMsgs([]); rollingSummaryRef.current = ""; sessionTokensRef.current = 0; setElapsed(0); setLeft(minutes * 60); setOffline(false); setOfflineReason(""); setPhase("chat");
     phaseRef.current = "chat";
     usedTopicsRef.current = [];
-    void ask([]); // the avatar opens the conversation on the chosen topic
+    goalsDoneRef.current = []; setGoalsDone([]); missionWonRef.current = false; setMissionWon(false);
+    if (mode !== "missions") { setMission(null); missionRef.current = null; }
+    void ask([]); // the avatar opens the conversation on the chosen topic (or in the mission's role)
+  };
+  const startMission = (m: Mission) => {
+    setMission(m); missionRef.current = m;
+    const missionTopic = { id: `mission-${m.id}`, emoji: m.emoji, en: `${m.title.en} (roleplay: ${m.scene})`, es: m.title.es };
+    setTopic(missionTopic); topicRef.current = missionTopic;
+    begin();
   };
   const resume = (saved: SavedChat) => {
     void unlockAudio();
@@ -247,7 +275,23 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
             </button>
           ))}
         </div>
-        <div className="space-y-2 text-left">
+        <div className="grid grid-cols-2 gap-2 rounded-2xl bg-muted p-1">
+          {(["free", "missions"] as const).map((m) => (
+            <button key={m} onClick={() => setMode(m)} className={cn("rounded-xl py-2 text-sm font-extrabold uppercase", mode === m ? "bg-card shadow" : "text-muted-foreground")}>{m === "free" ? `💬 ${t("modeFree")}` : `🎯 ${t("modeMissions")}`}</button>
+          ))}
+        </div>
+        {mode === "missions" && <div className="grid grid-cols-1 gap-2 text-left sm:grid-cols-2">
+          {MISSIONS.map((m) => (
+            <button key={m.id} onClick={() => startMission(m)} className="flex items-start gap-2 rounded-2xl border-2 border-border p-3 transition hover:bg-muted">
+              <span className="text-2xl">{m.emoji}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-extrabold">{missionText(m.title, s.native)}{s.missionsDone.includes(m.id) && " ✓"}</span>
+                <span className="text-xs font-bold text-muted-foreground">{m.level} · {m.goals.map((goal) => missionText(goal.label, s.native)).join(" · ")}</span>
+              </span>
+            </button>
+          ))}
+        </div>}
+        {mode === "free" && <div className="space-y-2 text-left">
           <p className="text-xs font-extrabold uppercase text-muted-foreground">{s.native === "es" ? "Tema" : "Topic"}</p>
           <div className="flex gap-2">
             <select value={topic.id} onChange={(e) => setTopic(TOPICS.find((x) => x.id === e.target.value) ?? topic)} className="min-w-0 flex-1 rounded-2xl border-2 border-border bg-background p-3 font-bold">
@@ -255,7 +299,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
             </select>
             <button aria-label={s.native === "es" ? "Tema al azar" : "Random topic"} onClick={() => setTopic(randomTopic([topic.id]))} className="rounded-2xl border-2 border-border px-3 hover:bg-muted"><Shuffle className="h-5 w-5" /></button>
           </div>
-        </div>
+        </div>}
         <button onClick={() => setHandsFree((v) => !v)} className={cn("flex w-full items-center justify-center gap-2 rounded-2xl border-2 p-3 font-extrabold", handsFree ? "border-primary bg-accent text-accent-foreground" : "border-border") }>
           {handsFree ? <Headphones className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
           {handsFree ? "Manos libres activado" : "Activar manos libres"}
@@ -311,6 +355,14 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
         <p className="text-xs font-bold text-muted-foreground">{t(`p_${persona.id}` as K)}{busy && ` · ${t("thinking")}`}{speech.processing ? " · Transcribing…" : speech.listening && ` · ${t("listening")}`}</p>
       </div>
 
+      {mission && <Card className="space-y-2 p-4">
+        <p className="text-xs font-extrabold uppercase text-muted-foreground">{mission.emoji} {missionText(mission.title, s.native)} · {t("missionGoals")}</p>
+        {mission.goals.map((goal) => {
+          const done = goalsDone.includes(goal.id);
+          return <p key={goal.id} className={cn("flex items-center gap-2 text-sm font-bold", done && "text-success")}><span className={cn("grid h-5 w-5 place-items-center rounded-full border-2 text-xs", done ? "border-success bg-success text-primary-foreground" : "border-border")}>{done ? "✓" : ""}</span>{missionText(goal.label, s.native)}</p>;
+        })}
+        {missionWon && <div className="flex items-center justify-between gap-2 rounded-xl bg-success-soft p-2"><span className="font-extrabold">🏅 {t("missionComplete")}</span><Btn className="px-3 py-1.5 text-xs" onClick={() => { finish(); setMode("missions"); setPhase("setup"); }}>{t("anotherMission")}</Btn></div>}
+      </Card>}
       {offline && <p role="status" className="text-center text-xs font-bold text-muted-foreground">{s.native === "es" ? `Modo local: ${offlineReason || "el proveedor de IA no está disponible"}. Puedes seguir practicando con respuestas locales.` : `Local mode: ${offlineReason || "the AI provider is unavailable"}. You can keep practicing with local responses.`}</p>}
 
       <div className="max-h-[40vh] min-h-[160px] space-y-3 overflow-y-auto rounded-3xl border-2 border-border bg-card p-4">

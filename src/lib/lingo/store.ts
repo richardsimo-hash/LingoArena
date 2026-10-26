@@ -33,6 +33,8 @@ export type State = {
   /** Streak freezes held (max 2): each covers one missed day automatically. */
   streakFreezes: number;
   chatTurns: number;
+  /** Completed roleplay mission ids (see missions.ts). */
+  missionsDone: string[];
   /** Unlocked achievement ids (see achievements.ts). */
   achievements: string[];
   rate: number;
@@ -51,7 +53,7 @@ export const TOTAL_NODES = UNITS.length * NODES_PER_UNIT;
 const DEFAULT: State = {
   configured: false, name: "", settingsAt: 0, native: "en", target: "es", persona: "barista",
   xp: 0, hearts: MAX_HEARTS, heartsRefillAt: null, streak: 0, lastActive: null,
-  progress: {}, dailyGoal: 20, dailyXp: {}, reviewsDone: 0, streakFreezes: 1, chatTurns: 0, achievements: [], rate: 1, dark: false, bestPron: 0, grammarWins: 0, rapidBest: 0,
+  progress: {}, dailyGoal: 20, dailyXp: {}, reviewsDone: 0, streakFreezes: 1, chatTurns: 0, achievements: [], missionsDone: [], rate: 1, dark: false, bestPron: 0, grammarWins: 0, rapidBest: 0,
 };
 
 export const SETTINGS_KEYS = ["name", "native", "target", "persona", "rate", "dark", "dailyGoal"] as const;
@@ -168,7 +170,7 @@ export function sanitize(raw: unknown): State {
   for (const [day, xp] of validDays) dailyXp[day] = Math.max(0, Number(xp));
   const count = (v: unknown) => (Number.isFinite(Number(v)) ? Math.max(0, Math.floor(Number(v))) : 0);
   const achievements = Array.isArray(r.achievements) ? [...new Set(r.achievements.filter((a): a is string => typeof a === "string"))] : [];
-  return { ...DEFAULT, ...(r as Partial<State>), name, native, target, persona, hearts, progress, dailyGoal, dailyXp, reviewsDone: count(r.reviewsDone), chatTurns: count(r.chatTurns), achievements, streakFreezes: r.streakFreezes === undefined ? 1 : Math.min(MAX_FREEZES, count(r.streakFreezes)) };
+  return { ...DEFAULT, ...(r as Partial<State>), name, native, target, persona, hearts, progress, dailyGoal, dailyXp, reviewsDone: count(r.reviewsDone), chatTurns: count(r.chatTurns), achievements, missionsDone: Array.isArray(r.missionsDone) ? [...new Set(r.missionsDone.filter((m): m is string => typeof m === "string"))] : [], streakFreezes: r.streakFreezes === undefined ? 1 : Math.min(MAX_FREEZES, count(r.streakFreezes)) };
 }
 
 export function useLingo() {
@@ -239,6 +241,7 @@ export function useLingo() {
     return { ...p, progress: { ...p.progress, [p.target]: { ...cur, placedUnit, placementSeen: true } } };
   }), []);
 
+  const completeMission = useCallback((id: string) => setS((p) => (p.missionsDone.includes(id) ? p : { ...p, missionsDone: [...p.missionsDone, id] })), []);
   const countChatTurn = useCallback(() => setS((p) => ({ ...p, chatTurns: p.chatTurns + 1 })), []);
   const unlockAchievements = useCallback((ids: string[]) => setS((p) => ({ ...p, achievements: [...new Set([...p.achievements, ...ids])] })), []);
 
@@ -253,6 +256,6 @@ export function useLingo() {
   const sinceReview = s.progress[s.target]?.sinceReview ?? 0;
   const placedUnit = s.progress[s.target]?.placedUnit;
   const placementSeen = s.progress[s.target]?.placementSeen ?? false;
-  return { s, loaded, update, replace, addXp, loseHeart, completeNode, finishReview, setPlacement, countChatTurn, unlockAchievements, reset, completed, done, deck, sinceReview, placedUnit, placementSeen };
+  return { s, loaded, update, replace, addXp, loseHeart, completeNode, finishReview, setPlacement, completeMission, countChatTurn, unlockAchievements, reset, completed, done, deck, sinceReview, placedUnit, placementSeen };
 }
 export type Lingo = ReturnType<typeof useLingo>;

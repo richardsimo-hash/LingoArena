@@ -42,7 +42,9 @@ describe("createSentenceSpeaker", () => {
 
 describe("splitReply", () => {
   it("separates the spoken reply from the correction line", () => {
-    expect(splitReply("I went there too! When?\n§ Say 'I went', not 'I goed'.")).toEqual({ reply: "I went there too! When?", correction: "Say 'I went', not 'I goed'." });
-    expect(splitReply("Just a reply.")).toEqual({ reply: "Just a reply.", correction: "" });
+    expect(splitReply("I went there too! When?\n§ Say 'I went', not 'I goed'.")).toEqual({ reply: "I went there too! When?", correction: "Say 'I went', not 'I goed'.", goals: [] });
+    expect(splitReply("Just a reply.")).toEqual({ reply: "Just a reply.", correction: "", goals: [] });
+    expect(splitReply("Here you go! That's 3 euros.\n§ Say 'a coffee'.\n¶ g1,g2")).toEqual({ reply: "Here you go! That's 3 euros.", correction: "Say 'a coffee'.", goals: ["g1", "g2"] });
+    expect(splitReply("Hi! What can I get you?\n¶")).toEqual({ reply: "Hi! What can I get you?", correction: "", goals: [] });
   });
 });

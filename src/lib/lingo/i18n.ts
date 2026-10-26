@@ -44,6 +44,13 @@ export const S = {
   commentOptional: ["Suggestion (optional)", "Sugerencia (opcional)", "Suggestion (facultatif)", "Vorschlag (optional)", "Suggerimento (facoltativo)", "Sugestão (opcional)"],
   sendReport: ["Send", "Enviar", "Envoyer", "Senden", "Invia", "Enviar"],
   thanksReport: ["Thanks! We'll review it.", "¡Gracias! Lo revisaremos.", "Merci ! Nous allons vérifier.", "Danke! Wir prüfen das.", "Grazie! Lo controlleremo.", "Obrigado! Vamos rever."],
+  // missions
+  modeFree: ["Free talk", "Charla libre", "Discussion libre", "Freies Gespräch", "Chiacchierata libera", "Conversa livre"],
+  modeMissions: ["Missions", "Misiones", "Missions", "Missionen", "Missioni", "Missões"],
+  missionGoals: ["Your goals", "Tus objetivos", "Tes objectifs", "Deine Ziele", "I tuoi obiettivi", "Os teus objetivos"],
+  missionComplete: ["Mission complete! +30 XP", "¡Misión cumplida! +30 XP", "Mission accomplie ! +30 XP", "Mission erfüllt! +30 XP", "Missione compiuta! +30 XP", "Missão cumprida! +30 XP"],
+  anotherMission: ["Another mission", "Otra misión", "Autre mission", "Weitere Mission", "Un'altra missione", "Outra missão"],
+  startMission: ["Start mission", "Empezar misión", "Commencer la mission", "Mission starten", "Inizia la missione", "Começar missão"],
   // reminders
   dailyReminder: ["Daily reminder", "Recordatorio diario", "Rappel quotidien", "Tägliche Erinnerung", "Promemoria giornaliero", "Lembrete diário"],
   addToCalendar: ["Add to calendar", "Añadir al calendario", "Ajouter au calendrier", "Zum Kalender", "Aggiungi al calendario", "Adicionar ao calendário"],
