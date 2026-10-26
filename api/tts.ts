@@ -139,13 +139,21 @@ async function geminiTts(text: string, locale: string): Promise<{ bytes: Uint8Ar
 }
 
 /** OpenAI text-to-speech (MP3), used when Gemini fails. Model/voice: OPENAI_TTS_MODEL, OPENAI_TTS_VOICE. */
-async function openaiTts(text: string, rate: number): Promise<TtsResult> {
+async function openaiTts(text: string, rate: number, locale: string): Promise<TtsResult> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("openai_missing_key");
   const response = await fetch("https://api.openai.com/v1/audio/speech", {
     method: "POST", signal: AbortSignal.timeout(20_000),
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts", voice: process.env.OPENAI_TTS_VOICE || "nova", input: text, response_format: "mp3", speed: Math.min(1.5, Math.max(0.7, rate || 1)) }),
+    body: JSON.stringify({
+      model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts",
+      voice: process.env.OPENAI_TTS_VOICE || "coral",
+      input: text,
+      // Tone guidance (gpt-4o-mini-tts): sound like a real, warm person, not a robot.
+      instructions: process.env.OPENAI_TTS_INSTRUCTIONS || `You are Chloe, a warm, upbeat language tutor talking with a learner on a friendly call. Speak naturally and expressively with relaxed, conversational pacing, gentle smiles in your voice and natural intonation, like a real person. Pronounce everything clearly with a native ${locale} accent. Never sound robotic or monotone.`,
+      response_format: "mp3",
+      speed: Math.min(1.5, Math.max(0.7, rate || 1)),
+    }),
   });
   if (!response.ok) throw new Error(`openai_tts_http_${response.status}: ${(await response.text().catch(() => "")).replace(/\s+/g, " ").slice(0, 200)}`);
   return { bytes: new Uint8Array(await response.arrayBuffer()), mimeType: "audio/mpeg" };
@@ -176,8 +184,8 @@ export default async function handler(req: RequestLike, res: ResponseLike): Prom
     const tryOpenAi = async (geminiDetail: string): Promise<boolean> => {
       if (!process.env.OPENAI_API_KEY) return false;
       try {
-        const result = await openaiTts(text, rateValue);
-        console.warn("[LingoArena TTS] served by OpenAI after Gemini failure", geminiDetail.slice(0, 200));
+        const result = await openaiTts(text, rateValue, locale);
+        if (geminiDetail !== "preferred") console.warn("[LingoArena TTS] served by OpenAI after Gemini failure", geminiDetail.slice(0, 200));
         sendAudio(res, result.bytes, "audio/mpeg");
         return true;
       } catch (error) {
@@ -185,8 +193,15 @@ export default async function handler(req: RequestLike, res: ResponseLike): Prom
         return false;
       }
     };
+    // OpenAI first by default: ~1 s per sentence and tone instructions; Gemini TTS is slower.
+    const openAiFirst = (process.env.TTS_PROVIDER_ORDER || "openai,gemini").trim().startsWith("openai");
+    let openAiTried = false;
+    if (openAiFirst && process.env.OPENAI_API_KEY) {
+      openAiTried = true;
+      if (await tryOpenAi("preferred")) return;
+    }
     if (!geminiApiKey) {
-      if (await tryOpenAi("gemini_missing_key")) return;
+      if (!openAiTried && await tryOpenAi("gemini_missing_key")) return;
       res.status(503).json({ ok: false, error: "gemini_missing_key", provider: "gemini", fallback: "browser_speech_synthesis" });
       return;
     }
@@ -198,7 +213,7 @@ export default async function handler(req: RequestLike, res: ResponseLike): Prom
       const detail = safeError(error);
       const classified = classifyTtsError(error);
       console.error("[LingoArena TTS] Gemini request failed", { code: classified.code, detail });
-      if (await tryOpenAi(detail)) return;
+      if (!openAiTried && await tryOpenAi(detail)) return;
       if (classified.retryAfterSeconds) res.setHeader("Retry-After", String(classified.retryAfterSeconds));
       res.status(classified.status).json({
         ok: false,

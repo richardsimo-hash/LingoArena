@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { canChooseSpeaker, getPreferredSpeakerId, setPreferredSpeakerId, testSound } from "@/lib/voice";
+import { canChooseSpeaker, getPreferredSpeakerId, naturalVoiceEnabled, setNaturalVoice, setPreferredSpeakerId, testSound } from "@/lib/voice";
+import { makeT } from "@/lib/lingo/i18n";
+import type { NativeLang } from "@/lib/lingo/content";
 import { getPreferredMicId, setPreferredMicId, startLiveCapture, VIRTUAL_MIC_PATTERN, type LiveCapture } from "@/lib/liveCapture";
 import { logDiagnostic } from "@/lib/diagnostics";
 
 /** Microphone and speaker pickers. Choices are saved per browser and apply immediately. */
-export function AudioDeviceSettings() {
+export function AudioDeviceSettings({ native = "en" }: { native?: NativeLang }) {
+  const t = makeT(native);
+  const [natural, setNatural] = useState(naturalVoiceEnabled());
   const [inputs, setInputs] = useState<MediaDeviceInfo[]>([]);
   const [outputs, setOutputs] = useState<MediaDeviceInfo[]>([]);
   const [micId, setMicId] = useState(getPreferredMicId() || "");
@@ -94,6 +98,10 @@ export function AudioDeviceSettings() {
       <p className="text-xs text-muted-foreground">
         {canChooseSpeaker() ? "Applies to lesson audio and sounds. The browser's built-in voice always uses your system output." : "This browser always plays through the system output; change it in your system sound settings."}
       </p>
+      <label className="flex cursor-pointer items-start justify-between gap-3 rounded-2xl bg-muted p-3">
+        <span><span className="block font-bold">🗣️ {t("naturalVoice")}</span><span className="block text-xs text-muted-foreground">{t("naturalVoiceHint")}</span></span>
+        <input type="checkbox" className="mt-1 h-5 w-5 accent-[var(--primary)]" checked={natural} onChange={(e) => { setNatural(e.target.checked); setNaturalVoice(e.target.checked); logDiagnostic("audio", "natural_voice_toggled", "info", { enabled: e.target.checked }); }} />
+      </label>
       {labelsHidden && <button type="button" onClick={() => void showNames()} className="text-xs font-bold text-primary underline">Show device names (asks for microphone access)</button>}
       {status && <p role="status" className="text-xs font-bold">{status}</p>}
     </div>

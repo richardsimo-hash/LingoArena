@@ -5,7 +5,7 @@ import { chatStream, localChat, splitReply } from "@/lib/lingo/chat.functions";
 import { createSentenceSpeaker } from "@/lib/lingo/sentenceSpeaker";
 import { NUDGES, TOPICS, randomTopic, topicLabel, type Topic } from "@/lib/lingo/topics";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
-import { speak, stopSpeaking, unlockAudio, getAccent } from "@/lib/voice";
+import { speak, stopSpeaking, unlockAudio, getAccent, naturalVoiceEnabled } from "@/lib/voice";
 import type { Lingo } from "@/lib/lingo/store";
 import { Btn, Card, MicButton, useSpeech } from "./ui";
 import { cn } from "@/lib/utils";
@@ -128,7 +128,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     // The reply is spoken sentence by sentence while it streams in, so Chloe starts talking
     // within about a second instead of after the whole answer has been generated.
     const speaker = createSentenceSpeaker({
-      lang: tg.locale, rate: s.rate,
+      lang: tg.locale, rate: s.rate, natural: naturalVoiceEnabled(),
       onStart: () => { setTalking(true); if (handsFreeRef.current) handsFreeController.speaking(); },
       onDone: afterReply,
     });

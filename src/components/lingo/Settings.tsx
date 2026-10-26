@@ -80,7 +80,7 @@ export function Settings({ lingo, cloud, onClose }: { lingo: Lingo; cloud: Cloud
           ))}
         </div>
 
-        <AudioDeviceSettings />
+        <AudioDeviceSettings native={native} />
 
         <label className="mb-2 block text-xs font-extrabold uppercase text-muted-foreground">{t("persona")}</label>
         <div className="mb-5 space-y-2">

@@ -27,6 +27,9 @@ export const S = {
   transcribingRec: ["Transcribing your recording…", "Transcribiendo tu grabación…", "Transcription de ton enregistrement…", "Deine Aufnahme wird transkribiert…", "Trascrizione della registrazione…", "A transcrever a gravação…"],
   typeSaid: ["Type what you said", "Escribe lo que dijiste", "Écris ce que tu as dit", "Schreib, was du gesagt hast", "Scrivi cosa hai detto", "Escreve o que disseste"],
   cantSpeak: ["Can't speak now", "No puedo hablar ahora", "Je ne peux pas parler", "Kann gerade nicht sprechen", "Non posso parlare ora", "Não posso falar agora"],
+  // tutor voice
+  naturalVoice: ["Natural AI voice for the tutor", "Voz natural con IA para la tutora", "Voix naturelle (IA) pour la tutrice", "Natürliche KI-Stimme für die Tutorin", "Voce naturale IA per la tutor", "Voz natural com IA para a tutora"],
+  naturalVoiceHint: ["Sounds like a real person. Uses a little internet data; off = your device's built-in voice.", "Suena como una persona real. Usa algo de datos; desactivada = voz integrada del dispositivo.", "Ressemble à une vraie personne. Utilise un peu de données ; désactivée = voix intégrée de l'appareil.", "Klingt wie ein echter Mensch. Braucht etwas Datenvolumen; aus = eingebaute Gerätestimme.", "Sembra una persona vera. Usa qualche dato; disattivata = voce integrata del dispositivo.", "Soa como uma pessoa real. Usa alguns dados; desligada = voz integrada do dispositivo."],
   // pronunciation feedback
   tapWordHint: ["Tap a word to hear it slowly.", "Toca una palabra para oírla despacio.", "Touche un mot pour l'entendre lentement.", "Tippe auf ein Wort, um es langsam zu hören.", "Tocca una parola per sentirla lentamente.", "Toca numa palavra para a ouvir devagar."],
   hearSlowly: ["Hear it slowly", "Escúchala despacio", "Écouter lentement", "Langsam anhören", "Ascolta lentamente", "Ouvir devagar"],

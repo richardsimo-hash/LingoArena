@@ -379,7 +379,7 @@ function startAmplitudeTracking(_audio: HTMLAudioElement) {
   }
 }
 
-function playWithPersistentAudio(src: string, token: number, cb?: { onStart?: () => void; onEnd?: () => void }): Promise<boolean> {
+function playWithPersistentAudio(src: string, token: number, cb?: { onStart?: () => void; onEnd?: () => void }, alreadyPrepared = false): Promise<boolean> {
   const audio = persistentPlayer();
   if (!audio || muted) { cb?.onEnd?.(); return Promise.resolve(false); }
   return new Promise((resolve) => {
@@ -408,7 +408,8 @@ function playWithPersistentAudio(src: string, token: number, cb?: { onStart?: ()
     audio.addEventListener("playing", onPlaying);
     audio.addEventListener("ended", onEnded);
     audio.addEventListener("error", onError);
-    void prepareForPlayback().then(() => audio.play()).then(() => {
+    // Mid-reply sentences skip the mic-release wait: the microphone is already off.
+    void (alreadyPrepared ? Promise.resolve() : prepareForPlayback()).then(() => audio.play()).then(() => {
       setTtsDebug("cloud_tts", "", lastApiStatus);
       if (!started && token === speakingToken) cb?.onStart?.();
     }).catch((error) => {
@@ -509,6 +510,29 @@ function browserSpeak(text: string, locale: string, rate: number, token: number,
     logAudio("browser speech fallback failed", error);
     cb?.onEnd?.();
   }
+}
+
+const NATURAL_VOICE_KEY = "lingoarena-natural-voice";
+/** The tutor's natural AI voice (cloud TTS) is on unless the learner turned it off in Settings. */
+export function naturalVoiceEnabled(): boolean {
+  try { return localStorage.getItem(NATURAL_VOICE_KEY) !== "off"; } catch { return true; }
+}
+export function setNaturalVoice(enabled: boolean) {
+  try { localStorage.setItem(NATURAL_VOICE_KEY, enabled ? "on" : "off"); } catch { /* storage blocked */ }
+}
+/**
+ * Fetches natural cloud speech for one sentence without playing it (so the next sentence can be
+ * fetched while the current one plays). Resolves null when disabled, muted or unavailable.
+ */
+export function prefetchSpeech(text: string, locale: string, rate: number): Promise<string | null> {
+  if (!naturalVoiceEnabled() || muted || typeof window === "undefined") return Promise.resolve(null);
+  return cloudTts(text, locale, rate);
+}
+/** Plays speech fetched with prefetchSpeech. `continuing` = a later sentence of the same reply. Resolves false if it could not play. */
+export function playPreparedSpeech(url: string, cb: { onStart?: () => void; onEnd?: () => void }, continuing = false): Promise<boolean> {
+  if (!continuing) void unlockAudio();
+  const token = ++speakingToken;
+  return playWithPersistentAudio(url, token, cb, continuing);
 }
 
 export type SpeakOptions = { lang: string; accent?: string; rate?: number };
