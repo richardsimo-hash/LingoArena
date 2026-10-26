@@ -44,6 +44,13 @@ export const S = {
   commentOptional: ["Suggestion (optional)", "Sugerencia (opcional)", "Suggestion (facultatif)", "Vorschlag (optional)", "Suggerimento (facoltativo)", "Sugestão (opcional)"],
   sendReport: ["Send", "Enviar", "Envoyer", "Senden", "Invia", "Enviar"],
   thanksReport: ["Thanks! We'll review it.", "¡Gracias! Lo revisaremos.", "Merci ! Nous allons vérifier.", "Danke! Wir prüfen das.", "Grazie! Lo controlleremo.", "Obrigado! Vamos rever."],
+  // reminders
+  dailyReminder: ["Daily reminder", "Recordatorio diario", "Rappel quotidien", "Tägliche Erinnerung", "Promemoria giornaliero", "Lembrete diário"],
+  addToCalendar: ["Add to calendar", "Añadir al calendario", "Ajouter au calendrier", "Zum Kalender", "Aggiungi al calendario", "Adicionar ao calendário"],
+  pushReminders: ["Notifications on this device", "Notificaciones en este dispositivo", "Notifications sur cet appareil", "Benachrichtigungen auf diesem Gerät", "Notifiche su questo dispositivo", "Notificações neste dispositivo"],
+  pushDenied: ["Notifications are blocked in your browser settings.", "Las notificaciones están bloqueadas en tu navegador.", "Les notifications sont bloquées dans ton navigateur.", "Benachrichtigungen sind im Browser blockiert.", "Le notifiche sono bloccate nel browser.", "As notificações estão bloqueadas no navegador."],
+  reminderTitle: ["LingoArena: 5-minute lesson 🔥", "LingoArena: lección de 5 minutos 🔥", "LingoArena : leçon de 5 minutes 🔥", "LingoArena: 5-Minuten-Lektion 🔥", "LingoArena: lezione di 5 minuti 🔥", "LingoArena: lição de 5 minutos 🔥"],
+  reminderBody: ["Keep your streak going with Chloe:", "Mantén tu racha con Chloe:", "Garde ta série avec Chloe :", "Halte deine Serie mit Chloe:", "Mantieni la serie con Chloe:", "Mantém a sequência com a Chloe:"],
   // grammar tips
   grammarTip: ["Grammar tip", "Consejo de gramática", "Astuce de grammaire", "Grammatiktipp", "Consiglio di grammatica", "Dica de gramática"],
   explainAi: ["Explain with AI", "Explícalo con IA", "Expliquer avec l'IA", "Mit KI erklären", "Spiega con l'IA", "Explicar com IA"],

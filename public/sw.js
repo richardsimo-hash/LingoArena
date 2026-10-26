@@ -5,7 +5,7 @@
  * - /api/* and cross-origin requests are never cached (AI calls need the network; the
  *   on-device Whisper model is cached separately by Transformers.js).
  */
-const VERSION = "v4";
+const VERSION = "v5";
 const SHELL = `lingoarena-shell-${VERSION}`;
 const ASSETS = `lingoarena-assets-${VERSION}`;
 const STATIC = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/icon.svg"];
@@ -72,4 +72,20 @@ self.addEventListener("fetch", (event) => {
       return response;
     })());
   }
+});
+
+// Daily practice reminders (sent by /api/cron-reminders).
+self.addEventListener("push", (event) => {
+  let data = { title: "LingoArena", body: "Time for a quick lesson!", url: "/" };
+  try { data = { ...data, ...event.data.json() }; } catch { /* plain or empty payload */ }
+  event.waitUntil(self.registration.showNotification(data.title, { body: data.body, icon: "/icons/icon-192.png", badge: "/icons/icon-192.png", data: { url: data.url }, tag: "lingoarena-reminder" }));
+});
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    const open = windows.find((w) => new URL(w.url).origin === self.location.origin);
+    if (open) return open.focus();
+    return self.clients.openWindow(event.notification.data?.url || "/");
+  })());
 });

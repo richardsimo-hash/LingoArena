@@ -7,6 +7,7 @@ import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { sfx, stopSpeaking, unlockAudio } from "@/lib/voice";
 import { Settings } from "@/components/lingo/Settings";
 import { useCloudSync } from "@/lib/lingo/sync";
+import { touchPush } from "@/lib/reminders";
 import { ACHIEVEMENTS, achievementTitle, newlyUnlocked } from "@/lib/lingo/achievements";
 import { AudioControls } from "@/components/lingo/ui";
 import { LearnPath } from "@/components/lingo/LearnPath";
@@ -48,6 +49,8 @@ export default function App() {
     else if (r.streakUp) { setTimeout(sfx.streak, 250); toast(`🔥 ${t("streakUp")}`); }
   };
   const fail = () => { sfx.wrong(); };
+  // Tell the reminder server once a day that the learner practised (no-op without push).
+  useEffect(() => { if (loaded && s.lastActive === today()) void touchPush(s.native, s.lastActive); }, [loaded, s.lastActive, s.native]);
   // Announce achievements once, as soon as the progress that earns them is saved.
   useEffect(() => {
     if (!loaded) return;

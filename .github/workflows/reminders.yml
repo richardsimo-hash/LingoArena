@@ -1,0 +1,17 @@
+name: reminders
+# Free hourly trigger for daily practice reminders (Vercel's free plan only allows daily crons).
+# Needs repository secret CRON_SECRET (same value as the Vercel env var); does nothing without it.
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then echo "CRON_SECRET not set; reminders disabled."; exit 0; fi
+          curl -fsS -H "Authorization: Bearer $CRON_SECRET" https://lingoarena.vercel.app/api/cron-reminders

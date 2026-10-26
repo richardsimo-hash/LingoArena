@@ -8,6 +8,7 @@ import { getAccent, setAccent } from "@/lib/voice";
 import { langName, makeT, type K } from "@/lib/lingo/i18n";
 import { Btn } from "./ui";
 import { AudioDeviceSettings } from "./AudioDeviceSettings";
+import { ReminderSettings } from "./ReminderSettings";
 import { cn } from "@/lib/utils";
 
 export function Settings({ lingo, cloud, onClose }: { lingo: Lingo; cloud: CloudSync; onClose: () => void }) {
@@ -79,6 +80,8 @@ export function Settings({ lingo, cloud, onClose }: { lingo: Lingo; cloud: Cloud
             </button>
           ))}
         </div>
+
+        <ReminderSettings native={native} lastActive={s.lastActive} />
 
         <AudioDeviceSettings native={native} />
 

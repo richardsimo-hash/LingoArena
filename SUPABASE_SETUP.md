@@ -53,3 +53,15 @@ Redeploy on Vercel (or push any commit). The sign-in buttons appear at the botto
 - First sign-in on a device merges that device's progress with the account (nothing is lost; see `mergeStates`).
 - Changes upload ~2 s later. Signing out keeps the progress on the device.
 - Data stored per user: one JSON row (≈ tens of KB). Delete a user in Supabase → their row is deleted too.
+
+## Push reminders (optional, free)
+The calendar reminder in Settings works without any setup. For real notifications:
+1. Run `supabase/migrations/0003_push_subscriptions.sql` in the SQL Editor.
+2. Generate keys locally: `npx web-push generate-vapid-keys`.
+3. Vercel env vars: `VITE_VAPID_PUBLIC_KEY` (public key — fine to expose), `VAPID_PRIVATE_KEY` (server-only),
+   `VAPID_SUBJECT` (e.g. `mailto:you@example.com`), `CRON_SECRET` (any long random string), plus
+   `SUPABASE_SERVICE_ROLE_KEY` from step 2 above.
+4. GitHub → repository Settings → Secrets → Actions: add `CRON_SECRET` with the same value.
+   `.github/workflows/reminders.yml` then calls `/api/cron-reminders` every hour (free for public repos).
+5. Redeploy. Settings shows "Notifications on this device"; reminders go only to learners who
+   have not practised that day, at their chosen hour and in their language.
