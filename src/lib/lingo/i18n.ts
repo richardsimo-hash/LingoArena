@@ -44,6 +44,13 @@ export const S = {
   commentOptional: ["Suggestion (optional)", "Sugerencia (opcional)", "Suggestion (facultatif)", "Vorschlag (optional)", "Suggerimento (facoltativo)", "Sugestão (opcional)"],
   sendReport: ["Send", "Enviar", "Envoyer", "Senden", "Invia", "Enviar"],
   thanksReport: ["Thanks! We'll review it.", "¡Gracias! Lo revisaremos.", "Merci ! Nous allons vérifier.", "Danke! Wir prüfen das.", "Grazie! Lo controlleremo.", "Obrigado! Vamos rever."],
+  // my phrases
+  myPhrases: ["My phrases", "Mis frases", "Mes phrases", "Meine Sätze", "Le mie frasi", "As minhas frases"],
+  searchPhrases: ["Search…", "Buscar…", "Rechercher…", "Suchen…", "Cerca…", "Procurar…"],
+  filterAll: ["All", "Todas", "Toutes", "Alle", "Tutte", "Todas"],
+  filterDue: ["Due", "Para repasar", "À réviser", "Fällig", "Da ripassare", "Para rever"],
+  filterMastered: ["Mastered", "Dominadas", "Maîtrisées", "Gemeistert", "Padroneggiate", "Dominadas"],
+  noPhrasesYet: ["Finish a lesson to start your phrase list.", "Termina una lección para empezar tu lista.", "Termine une leçon pour commencer ta liste.", "Schließe eine Lektion ab, um deine Liste zu beginnen.", "Completa una lezione per iniziare la lista.", "Termina uma lição para começar a tua lista."],
   // motivation
   freezeUsed: ["A streak freeze saved your streak!", "¡Un protector de racha salvó tu racha!", "Un gel de série a sauvé ta série !", "Ein Serienschutz hat deine Serie gerettet!", "Un salva-serie ha salvato la tua serie!", "Um protetor salvou a tua sequência!"],
   freezesHeld: ["Streak freezes", "Protectores de racha", "Gels de série", "Serienschutz", "Salva-serie", "Protetores de sequência"],

@@ -5,12 +5,15 @@ import { langName, makeT, unitTitle } from "@/lib/lingo/i18n";
 import { levelFromXp, today, TOTAL_NODES, type Lingo } from "@/lib/lingo/store";
 import { ACHIEVEMENTS, achievementTitle, progressFacts } from "@/lib/lingo/achievements";
 import { nextLesson } from "./LearnPath";
+import { MyPhrases } from "./MyPhrases";
 import { Btn, Card } from "./ui";
 import { cn } from "@/lib/utils";
 
 export function Stats({ lingo }: { lingo: Lingo }) {
   const { s } = lingo;
   const t = makeT(s.native);
+  const [showPhrases, setShowPhrases] = useState(false);
+  if (showPhrases) return <MyPhrases lingo={lingo} onBack={() => setShowPhrases(false)} />;
   const lvl = levelFromXp(s.xp);
   const into = s.xp % 100;
   const tiles = [
@@ -39,6 +42,7 @@ export function Stats({ lingo }: { lingo: Lingo }) {
           </Card>
         ))}
       </div>
+      <Btn variant="secondary" className="w-full" onClick={() => setShowPhrases(true)}>📒 {t("myPhrases")} · {Object.keys(lingo.deck).length}</Btn>
       <ParentReport lingo={lingo} />
       <Card>
         <h3 className="mb-3 text-xl font-extrabold">{t("achievementsT")} · {s.achievements.length}/{ACHIEVEMENTS.length}</h3>
