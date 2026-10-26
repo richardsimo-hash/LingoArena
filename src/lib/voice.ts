@@ -316,7 +316,7 @@ export function pickVoice(locale: string, voices: SpeechSynthesisVoice[]): Speec
   return best;
 }
 
-async function cloudTts(text: string, locale: string, rate: number): Promise<string | null> {
+async function cloudTts(text: string, locale: string, rate: number, alt = false): Promise<string | null> {
   // Once Gemini returns 429, stop retrying each sentence/request during the cooldown.
   // speak() will transparently use the browser's local speech engine instead.
   if (Date.now() < cloudTtsCooldownUntil) return null;
@@ -324,7 +324,7 @@ async function cloudTts(text: string, locale: string, rate: number): Promise<str
     console.info("[LingoArena audio] TTS attempt", { engine: "cloud", locale: resolveLocale(locale), textLength: text.length });
     const response = await fetch("/api/tts", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, locale: resolveLocale(locale), rate }),
+      body: JSON.stringify({ text, locale: resolveLocale(locale), rate, voice: alt ? "alt" : undefined }),
     });
     lastApiStatus = String(response.status);
     if (!response.ok) {
@@ -423,7 +423,7 @@ function playWithPersistentAudio(src: string, token: number, cb?: { onStart?: ()
 
 let activeSpeechResolve: (() => void) | null = null;
 let cancelCurrentPlayback: (() => void) | null = null;
-function browserSpeak(text: string, locale: string, rate: number, token: number, cb?: { onStart?: () => void; onEnd?: () => void }): void {
+function browserSpeak(text: string, locale: string, rate: number, token: number, cb?: { onStart?: () => void; onEnd?: () => void }, alt = false): void {
   if (!("speechSynthesis" in window) || muted) { cb?.onEnd?.(); return; }
   setTtsDebug("browser_speech_synthesis", lastTtsError, lastApiStatus);
   const synth = window.speechSynthesis;
@@ -436,7 +436,10 @@ function browserSpeak(text: string, locale: string, rate: number, token: number,
     // Do not wait for voiceschanged: on iOS that leaves the user-gesture call stack.
     // getVoices() is intentionally synchronous; Safari can use its default voice if empty.
     const voices = synth.getVoices();
-    const voice = pickVoice(locale, voices);
+    const main = pickVoice(locale, voices);
+    // Second character: the best other voice for this language (falls back to a lower pitch).
+    const voice = alt ? pickVoice(locale, voices.filter((v) => v.name !== main?.name)) ?? main : main;
+    const pitch = alt && voice === main ? 0.8 : 1;
     if (synth.paused) synth.resume();
 
     const chunks = text.match(/[^.!?。！？]+[.!?。！？]*/g)?.map((part) => part.trim()).filter(Boolean) ?? [text];
@@ -447,7 +450,7 @@ function browserSpeak(text: string, locale: string, rate: number, token: number,
       utterance.lang = voice?.lang ?? resolveLocale(locale);
       if (voice) utterance.voice = voice;
       utterance.rate = rate;
-      utterance.pitch = 1;
+      utterance.pitch = pitch;
       utterance.volume = muted ? 0 : 1;
       let started = false;
       const clear = () => { if (chunkWatchdog) window.clearTimeout(chunkWatchdog); chunkWatchdog = 0; };
@@ -524,9 +527,9 @@ export function setNaturalVoice(enabled: boolean) {
  * Fetches natural cloud speech for one sentence without playing it (so the next sentence can be
  * fetched while the current one plays). Resolves null when disabled, muted or unavailable.
  */
-export function prefetchSpeech(text: string, locale: string, rate: number): Promise<string | null> {
+export function prefetchSpeech(text: string, locale: string, rate: number, alt = false): Promise<string | null> {
   if (!naturalVoiceEnabled() || muted || typeof window === "undefined") return Promise.resolve(null);
-  return cloudTts(text, locale, rate);
+  return cloudTts(text, locale, rate, alt);
 }
 /** Plays speech fetched with prefetchSpeech. `continuing` = a later sentence of the same reply. Resolves false if it could not play. */
 export function playPreparedSpeech(url: string, cb: { onStart?: () => void; onEnd?: () => void }, continuing = false): Promise<boolean> {
@@ -535,7 +538,8 @@ export function playPreparedSpeech(url: string, cb: { onStart?: () => void; onEn
   return playWithPersistentAudio(url, token, cb, continuing);
 }
 
-export type SpeakOptions = { lang: string; accent?: string; rate?: number };
+/** `voice: "alt"` = a second character's voice (different device voice / cloud voice). */
+export type SpeakOptions = { lang: string; accent?: string; rate?: number; voice?: "main" | "alt" };
 type SpeakCallbacks = { onStart?: () => void; onEnd?: () => void };
 /** Local-first TTS: browser speech is the default; cloud TTS is opt-in to protect prototype quota. */
 export function speak(text: string, options: SpeakOptions, callbacks?: SpeakCallbacks): boolean;
@@ -563,7 +567,7 @@ export function speak(text: string, localeOrOptions: string | SpeakOptions, rate
     try { cloudEnabled = localStorage.getItem("lingoarena-cloud-tts") === "enabled"; } catch { /* local storage may be blocked */ }
     const onStartOnce = (() => { let started = false; return () => { if (!started) { started = true; cb?.onStart?.(); } }; })();
     if (!cloudEnabled || !("speechSynthesis" in window)) {
-      browserSpeak(clean, locale, rate, token, { onStart: onStartOnce, onEnd: cb?.onEnd });
+      browserSpeak(clean, locale, rate, token, { onStart: onStartOnce, onEnd: cb?.onEnd }, options.voice === "alt");
       return;
     }
     // Optional cloud path for deliberate voice-quality tests only. Never retry each

@@ -129,3 +129,13 @@ describe("learning path progression", () => {
     expect(practiceConcepts([299]).length).toBe(CONCEPTS.length);
   });
 });
+
+import { MISSIONS } from "@/lib/lingo/missions";
+describe("missions", () => {
+  it("have titles and goals in every interface language", () => {
+    for (const m of MISSIONS) for (const native of UI_ORDER) {
+      expect(m.title[native]?.trim(), `${m.id}/${native}`).toBeTruthy();
+      for (const goal of m.goals) expect(goal.label[native]?.trim(), `${m.id}/${goal.id}/${native}`).toBeTruthy();
+    }
+  });
+});

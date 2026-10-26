@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 
 export const config = { maxDuration: 60 };
-type Body = { text?: string; locale?: string; rate?: number };
+type Body = { text?: string; locale?: string; rate?: number; voice?: string };
 type RequestLike = {
   method?: string;
   body?: Body;
@@ -26,18 +26,20 @@ const audioCache = new Map<string, { result: TtsResult; expiresAt: number }>();
 const inFlight = new Map<string, Promise<TtsResult>>();
 const AUDIO_CACHE_TTL_MS = 30 * 60_000;
 const AUDIO_CACHE_MAX_ENTRIES = 80;
-function cacheKeyFor(text: string, locale: string): string {
-  return `${process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts"}|${process.env.GEMINI_TTS_VOICE || "Kore"}|${locale}|${text}`;
+/** "alt" is a second character's voice (e.g. Leo in listening scenes). */
+const geminiVoice = (alt: boolean) => (alt ? process.env.GEMINI_TTS_VOICE_ALT || "Puck" : process.env.GEMINI_TTS_VOICE || "Kore");
+function cacheKeyFor(text: string, locale: string, alt = false): string {
+  return `${process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts"}|${geminiVoice(alt)}|${locale}|${text}`;
 }
-async function cachedGeminiTts(text: string, locale: string): Promise<TtsResult> {
-  const key = cacheKeyFor(text, locale);
+async function cachedGeminiTts(text: string, locale: string, alt = false): Promise<TtsResult> {
+  const key = cacheKeyFor(text, locale, alt);
   const now = Date.now();
   for (const [cacheKey, value] of audioCache) if (value.expiresAt <= now) audioCache.delete(cacheKey);
   const cached = audioCache.get(key);
   if (cached) return cached.result;
   const pending = inFlight.get(key);
   if (pending) return pending;
-  const request = geminiTts(text, locale);
+  const request = geminiTts(text, locale, alt);
   inFlight.set(key, request);
   try {
     const result = await request;
@@ -93,13 +95,13 @@ function safeError(error: unknown): string {
   return String(error).slice(0, 400);
 }
 
-async function geminiTts(text: string, locale: string): Promise<{ bytes: Uint8Array; mimeType: string }> {
+async function geminiTts(text: string, locale: string, alt = false): Promise<{ bytes: Uint8Array; mimeType: string }> {
   const key = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
   if (!key) throw new Error("gemini_missing_key");
 
   // Gemini 3.8 TTS uses the Interactions API, not the generateContent audio schema.
   const model = process.env.GEMINI_TTS_MODEL || "gemini-3.8-flash-tts";
-  const voice = process.env.GEMINI_TTS_VOICE || "Kore";
+  const voice = geminiVoice(alt);
   const response = await fetch("https://generativelanguage.googleapis.com/v1beta/interactions", {
     method: "POST",
     signal: AbortSignal.timeout(22_000),
@@ -141,7 +143,7 @@ async function geminiTts(text: string, locale: string): Promise<{ bytes: Uint8Ar
 /** OpenAI text-to-speech (MP3), used when Gemini fails. Model/voice: OPENAI_TTS_MODEL, OPENAI_TTS_VOICE. */
 // After an out-of-credits/rate-limit answer, skip OpenAI for a while instead of paying a round trip per sentence.
 let openAiTtsBlockedUntil = 0;
-async function openaiTts(text: string, rate: number, locale: string): Promise<TtsResult> {
+async function openaiTts(text: string, rate: number, locale: string, alt = false): Promise<TtsResult> {
   const key = process.env.OPENAI_API_KEY;
   if (!key) throw new Error("openai_missing_key");
   if (Date.now() < openAiTtsBlockedUntil) throw new Error("openai_tts_cooldown");
@@ -150,10 +152,10 @@ async function openaiTts(text: string, rate: number, locale: string): Promise<Tt
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
     body: JSON.stringify({
       model: process.env.OPENAI_TTS_MODEL || "gpt-4o-mini-tts",
-      voice: process.env.OPENAI_TTS_VOICE || "coral",
+      voice: alt ? process.env.OPENAI_TTS_VOICE_ALT || "ash" : process.env.OPENAI_TTS_VOICE || "coral",
       input: text,
       // Tone guidance (gpt-4o-mini-tts): sound like a real, warm person, not a robot.
-      instructions: process.env.OPENAI_TTS_INSTRUCTIONS || `You are Chloe, a warm, upbeat language tutor talking with a learner on a friendly call. Speak naturally and expressively with relaxed, conversational pacing, gentle smiles in your voice and natural intonation, like a real person. Pronounce everything clearly with a native ${locale} accent. Never sound robotic or monotone.`,
+      instructions: process.env.OPENAI_TTS_INSTRUCTIONS || `You are ${alt ? "Leo, a friendly young man" : "Chloe, a warm, upbeat language tutor"} talking with a learner on a friendly call. Speak naturally and expressively with relaxed, conversational pacing, gentle smiles in your voice and natural intonation, like a real person. Pronounce everything clearly with a native ${locale} accent. Never sound robotic or monotone.`,
       response_format: "mp3",
       speed: Math.min(1.5, Math.max(0.7, rate || 1)),
     }),
@@ -187,11 +189,12 @@ export default async function handler(req: RequestLike, res: ResponseLike): Prom
 
     const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GEMINI_KEY;
     const rateValue = Number(req.body?.rate) || 1;
+    const alt = req.body?.voice === "alt";
     // OpenAI is the backup voice when Gemini is missing or fails.
     const tryOpenAi = async (geminiDetail: string): Promise<boolean> => {
       if (!process.env.OPENAI_API_KEY) return false;
       try {
-        const result = await openaiTts(text, rateValue, locale);
+        const result = await openaiTts(text, rateValue, locale, alt);
         if (geminiDetail !== "preferred") console.warn("[LingoArena TTS] served by OpenAI after Gemini failure", geminiDetail.slice(0, 200));
         sendAudio(res, result.bytes, "audio/mpeg");
         return true;
@@ -213,7 +216,7 @@ export default async function handler(req: RequestLike, res: ResponseLike): Prom
       return;
     }
     try {
-      const result = await cachedGeminiTts(text, locale);
+      const result = await cachedGeminiTts(text, locale, alt);
       sendAudio(res, result.bytes, result.mimeType.toLowerCase().includes("mpeg") ? "audio/mpeg" : "audio/wav");
       return;
     } catch (error) {

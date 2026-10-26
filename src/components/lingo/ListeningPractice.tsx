@@ -33,7 +33,8 @@ export function ListeningPractice({ lingo, unit, reward, onExit }: { lingo: Ling
     const playLine = (i: number) => {
       if (i >= lines.length) { setPlaying(-1); return; }
       setPlaying(i);
-      const speaker = createSentenceSpeaker({ lang: tg.locale, rate: s.rate, natural: naturalVoiceEnabled(), onDone: () => window.setTimeout(() => playLine(i + 1), 350) });
+      // Chloe and Leo alternate, each with their own voice.
+      const speaker = createSentenceSpeaker({ lang: tg.locale, rate: s.rate, natural: naturalVoiceEnabled(), voice: i % 2 ? "alt" : "main", onDone: () => window.setTimeout(() => playLine(i + 1), 350) });
       speakerRef.current = speaker;
       speaker.update(lines[i]!.tr[s.target], true);
     };

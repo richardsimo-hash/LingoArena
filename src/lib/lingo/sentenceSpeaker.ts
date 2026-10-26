@@ -4,7 +4,7 @@ import { playPreparedSpeech, prefetchSpeech, speak } from "@/lib/voice";
  * Speaks streamed text sentence by sentence: the first sentence starts as soon as it is complete,
  * later ones queue behind it. `onDone` fires once the stream is finished and everything was spoken.
  */
-export function createSentenceSpeaker(options: { lang: string; rate: number; natural?: boolean; onStart?: () => void; onDone?: () => void }) {
+export function createSentenceSpeaker(options: { lang: string; rate: number; natural?: boolean; voice?: "main" | "alt"; onStart?: () => void; onDone?: () => void }) {
   let spokenUpTo = 0;
   // Each queued sentence starts fetching its natural (cloud) audio immediately, so it is ready
   // by the time the previous sentence finishes; null audio falls back to the browser voice.
@@ -29,7 +29,7 @@ export function createSentenceSpeaker(options: { lang: string; rate: number; nat
       onEnd: () => { speaking = false; next(); },
     };
     const continuing = spokenCount++ > 0;
-    const browserVoice = () => speak(item.text, { lang: options.lang, rate: options.rate }, callbacks);
+    const browserVoice = () => speak(item.text, { lang: options.lang, rate: options.rate, voice: options.voice }, callbacks);
     if (!item.audio) { browserVoice(); return; }
     void item.audio.then((url) => {
       if (cancelled) { if (url) URL.revokeObjectURL(url); return; }
@@ -39,7 +39,7 @@ export function createSentenceSpeaker(options: { lang: string; rate: number; nat
   };
   // If natural audio is not ready within 6 s, use the device voice for that sentence rather than leave silence.
   const withTimeout = (audio: Promise<string | null>) => Promise.race([audio, new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000))]);
-  const enqueue = (text: string) => queue.push({ text, audio: options.natural ? withTimeout(prefetchSpeech(text, options.lang, options.rate)) : null });
+  const enqueue = (text: string) => queue.push({ text, audio: options.natural ? withTimeout(prefetchSpeech(text, options.lang, options.rate, options.voice === "alt")) : null });
   return {
     /** Pass the full spoken text so far (without the correction line). */
     update(text: string, final = false) {
