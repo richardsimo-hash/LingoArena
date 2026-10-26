@@ -52,7 +52,7 @@ export default function App() {
   return (
     <div onPointerDownCapture={() => { void unlockAudio(); }} onKeyDownCapture={() => { void unlockAudio(); }} className="min-h-dvh pb-[calc(5.25rem+env(safe-area-inset-bottom))] md:pb-0 md:pl-60">
       <Toaster position="top-center" />
-      {(!s.configured || showSettings) && <Settings lingo={lingo} onClose={() => setShowSettings(false)} />}
+      {(!s.configured || !s.name || showSettings) && <Settings lingo={lingo} onClose={() => setShowSettings(false)} />}
 
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 hidden w-60 flex-col gap-2 border-r-2 border-border bg-card p-4 md:flex">
@@ -90,7 +90,7 @@ export default function App() {
       </header>
 
       <main className="mx-auto w-full min-w-0 max-w-3xl px-3 py-5 sm:px-4 sm:py-6">
-        <p className="mb-4 text-sm font-bold text-muted-foreground">{t("learning")} {target.flag} {langName(s.target, s.native)} · {t("level")} {levelFromXp(s.xp)}</p>
+        <p className="mb-4 text-sm font-bold text-muted-foreground">{s.name && <span className="text-foreground">{t("hiName", { name: s.name })} · </span>}{t("learning")} {target.flag} {langName(s.target, s.native)} · {t("level")} {levelFromXp(s.xp)}</p>
         {tab === "learn" && <LearnPath key={langKey} lingo={lingo} reward={reward} fail={fail} />}
         {tab === "arena" && <SpeechArena key={langKey} lingo={lingo} reward={reward} fail={fail} />}
         {tab === "grammar" && <GrammarBattle key={langKey} lingo={lingo} reward={reward} fail={fail} />}

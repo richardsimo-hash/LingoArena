@@ -22,6 +22,22 @@ function parse(raw: string): { reply: string; correction: string } {
     return { reply: raw.replace(/```(json)?/g, "").trim(), correction: "" };
   }
 }
+/** The last Free Talk conversation per target language, saved on this device so it can be resumed. */
+type SavedChat = { msgs: Msg[]; topicId: string; elapsed: number; savedAt: number };
+const chatKey = (target: string) => `lingoarena-chat-${target}`;
+function loadChat(target: string): SavedChat | null {
+  try {
+    const saved = JSON.parse(localStorage.getItem(chatKey(target)) || "null") as SavedChat | null;
+    // Keep two weeks; older conversations are not worth resuming.
+    return saved && Array.isArray(saved.msgs) && saved.msgs.length && Date.now() - saved.savedAt < 14 * 86_400_000 ? saved : null;
+  } catch { return null; }
+}
+function saveChat(target: string, chat: SavedChat) {
+  try { localStorage.setItem(chatKey(target), JSON.stringify({ ...chat, msgs: chat.msgs.slice(-60) })); } catch { /* storage full or blocked */ }
+}
+/** Instructions to the tutor sent as user turns, e.g. "(Let's switch topic…)"; never shown in the transcript. */
+const isHiddenTurn = (m: Msg) => m.role === "user" && /^\(.*\)$/s.test(m.content.trim());
+
 const mmss = (n: number) => `${Math.floor(n / 60)}:${String(n % 60).padStart(2, "0")}`;
 const DURATIONS = [0, 3, 5, 10]; // 0 = unlimited; timed sessions are optional
 
@@ -49,6 +65,12 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   topicRef.current = topic;
   const usedTopicsRef = useRef<string[]>([]);
   const speakerRef = useRef<ReturnType<typeof createSentenceSpeaker> | null>(null);
+  const [savedChat, setSavedChat] = useState<SavedChat | null>(() => loadChat(s.target));
+  useEffect(() => { setSavedChat(loadChat(s.target)); }, [s.target]);
+  // Autosave the conversation on this device while chatting.
+  useEffect(() => {
+    if (phase === "chat" && msgs.some((m) => !isHiddenTurn(m))) saveChat(s.target, { msgs, topicId: topic.id, elapsed, savedAt: Date.now() });
+  }, [msgs, phase]); // eslint-disable-line react-hooks/exhaustive-deps
   const speech = useSpeech(tg.locale, s.native);
   const msgsRef = useRef<Msg[]>([]);
   const endRef = useRef<HTMLDivElement>(null);
@@ -82,7 +104,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   const finish = () => {
     if (phaseRef.current !== "chat") return;
     speakerRef.current?.cancel(); stopSpeaking(); speech.stop();
-    const turns = msgsRef.current.filter((m) => m.role === "user").length;
+    const turns = msgsRef.current.filter((m) => m.role === "user" && !isHiddenTurn(m)).length;
     if (turns > 0) reward(Math.min(30, turns * 3));
     setPhase("summary");
   };
@@ -142,6 +164,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
       topic: topicRef.current.en,
       previousTopics: usedTopicsRef.current,
       nudge: extra.nudge,
+      learnerName: s.name,
     }, (textSoFar) => {
       if (phaseRef.current !== "chat" || speakerRef.current !== speaker) return;
       const { reply } = splitReply(textSoFar);
@@ -159,7 +182,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
     // AI unavailable: keep the conversation going with the on-device phrasebook.
     console.warn("[LingoArena chat] using local phrasebook fallback:", r.error);
     setOffline(true); setOfflineReason(r.error);
-    const local = localChat({ messages: history, targetName: langName(s.target, "en"), nativeName: langName(s.native, "en"), persona: persona.id, target: s.target });
+    const local = localChat({ messages: history.filter((m) => !isHiddenTurn(m)), targetName: langName(s.target, "en"), nativeName: langName(s.native, "en"), persona: persona.id, target: s.target });
     const nudges = NUDGES[s.target] || NUDGES.en!;
     const reply = extra.nudge ? `${nudges[Math.floor(Math.random() * nudges.length)]} ${local.reply}` : local.reply;
     showReply(reply, local.correction);
@@ -180,10 +203,22 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
 
   const begin = () => {
     void unlockAudio();
+    try { localStorage.removeItem(chatKey(s.target)); } catch { /* storage blocked */ }
+    setSavedChat(null);
     setMsgs([]); rollingSummaryRef.current = ""; sessionTokensRef.current = 0; setElapsed(0); setLeft(minutes * 60); setOffline(false); setOfflineReason(""); setPhase("chat");
     phaseRef.current = "chat";
     usedTopicsRef.current = [];
     void ask([]); // the avatar opens the conversation on the chosen topic
+  };
+  const resume = (saved: SavedChat) => {
+    void unlockAudio();
+    const savedTopic = TOPICS.find((x) => x.id === saved.topicId) ?? topic;
+    setTopic(savedTopic); topicRef.current = savedTopic;
+    rollingSummaryRef.current = ""; sessionTokensRef.current = 0; setElapsed(saved.elapsed || 0); setLeft(minutes * 60); setOffline(false); setOfflineReason("");
+    setMsgs(saved.msgs); msgsRef.current = saved.msgs;
+    setPhase("chat"); phaseRef.current = "chat";
+    usedTopicsRef.current = [];
+    void ask([...saved.msgs, { role: "user", content: "(We are resuming our conversation after a break. Welcome me back in one short sentence and continue where we left off.)" }]);
   };
   const send = (text: string) => {
     const v = text.trim();
@@ -235,13 +270,16 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
           {handsFree ? <Headphones className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
           {handsFree ? "Manos libres activado" : "Activar manos libres"}
         </button>
-        <Btn className="w-full" onClick={begin}>{t("startChat")}</Btn>
+        {savedChat && <Btn variant="secondary" className="w-full" onClick={() => resume(savedChat)}>
+          {s.native === "es" ? "Continuar última conversación" : "Continue last conversation"} · {(TOPICS.find((x) => x.id === savedChat.topicId) ?? topic).emoji} {savedChat.msgs.filter((m) => !isHiddenTurn(m)).length} {s.native === "es" ? "mensajes" : "messages"}
+        </Btn>}
+        <Btn className="w-full" onClick={begin}>{savedChat ? (s.native === "es" ? "Nueva conversación" : "New conversation") : t("startChat")}</Btn>
       </Card>
     </div>
   );
 
   if (phase === "summary") {
-    const turns = msgs.filter((m) => m.role === "user").length;
+    const turns = msgs.filter((m) => m.role === "user" && !isHiddenTurn(m)).length;
     return (
       <div className="mx-auto max-w-xl space-y-5">
         <Card className="space-y-4 text-center">
@@ -285,7 +323,7 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
       {offline && <p role="status" className="text-center text-xs font-bold text-muted-foreground">{s.native === "es" ? `Modo local: ${offlineReason || "el proveedor de IA no está disponible"}. Puedes seguir practicando con respuestas locales.` : `Local mode: ${offlineReason || "the AI provider is unavailable"}. You can keep practicing with local responses.`}</p>}
 
       <div className="max-h-[40vh] min-h-[160px] space-y-3 overflow-y-auto rounded-3xl border-2 border-border bg-card p-4">
-        {msgs.filter((m) => !(m.role === "user" && m.content.startsWith("(Let's switch topic"))).map((m, i) => (
+        {msgs.filter((m) => !isHiddenTurn(m)).map((m, i) => (
           <div key={i} className={cn("flex flex-col", m.role === "user" ? "items-end" : "items-start")}>
             <div className={cn("max-w-[85%] rounded-2xl px-4 py-2 font-bold", m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted")}>{m.content}</div>
             {m.correction && <p className="mt-1 max-w-[85%] text-xs font-bold text-flame">✏️ {m.correction}</p>}

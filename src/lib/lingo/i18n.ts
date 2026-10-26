@@ -4,6 +4,12 @@ import { UNITS, type NativeLang, type TargetLang } from "./content";
 export const UI_ORDER: NativeLang[] = ["en", "es", "fr", "de", "it", "pt"];
 
 export const S = {
+  // learner name
+  yourName: ["What's your name?", "¿Cómo te llamas?", "Comment tu t'appelles ?", "Wie heißt du?", "Come ti chiami?", "Como te chamas?"],
+  namePlaceholder: ["Your first name", "Tu nombre", "Ton prénom", "Dein Vorname", "Il tuo nome", "O teu nome"],
+  nameHint: ["Your tutor will use it. Saved only on this device.", "Tu tutora lo usará. Solo se guarda en este dispositivo.", "Ta tutrice l'utilisera. Enregistré uniquement sur cet appareil.", "Deine Tutorin verwendet ihn. Nur auf diesem Gerät gespeichert.", "La tua tutor lo userà. Salvato solo su questo dispositivo.", "A tua tutora vai usá-lo. Guardado apenas neste dispositivo."],
+  hiName: ["Hi, {name}!", "¡Hola, {name}!", "Salut, {name} !", "Hallo, {name}!", "Ciao, {name}!", "Olá, {name}!"],
+  wellDone: ["Well done, {name}!", "¡Bien hecho, {name}!", "Bravo, {name} !", "Gut gemacht, {name}!", "Ben fatto, {name}!", "Muito bem, {name}!"],
   // tabs
   learn: ["Learn Path", "Ruta", "Parcours", "Lernpfad", "Percorso", "Percurso"],
   arena: ["Speech Arena", "Arena de voz", "Arène vocale", "Sprech-Arena", "Arena vocale", "Arena de voz"],

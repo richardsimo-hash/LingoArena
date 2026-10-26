@@ -4,7 +4,7 @@ type Body = {
   messages?: ChatMessage[]; targetName?: string; nativeName?: string; persona?: string;
   cefr?: string; accent?: string; rollingSummary?: string; sessionTokensUsed?: number;
   /** Stream plain text (reply, then an optional "§ correction" line) instead of JSON. */
-  stream?: boolean; topic?: string; previousTopics?: string[]; nudge?: boolean;
+  stream?: boolean; topic?: string; previousTopics?: string[]; nudge?: boolean; learnerName?: string;
 };
 type StreamingResponse = { setHeader?: (k: string, v: string) => void; status: (n: number) => { json: (v: unknown) => void }; write?: (chunk: string) => void; end?: () => void; flushHeaders?: () => void; statusCode?: number };
 const PERSONA_STYLE: Record<string, string> = {
@@ -137,6 +137,8 @@ export default async function handler(req: { method?: string; body?: Body; heade
     role: m?.role === "assistant" ? "assistant" : "user", content: String(m?.content || "").slice(0, 800),
   }));
   const topic = String(data.topic || "").slice(0, 120);
+  // Only letters, spaces, apostrophes and hyphens: the name goes into the prompt, so nothing else is allowed.
+  const learnerName = String(data.learnerName || "").replace(/[^\p{L}\p{M}' -]/gu, "").trim().slice(0, 40);
   const previousTopics = (Array.isArray(data.previousTopics) ? data.previousTopics : []).slice(-6).map((t) => String(t).slice(0, 80));
   if (!history.length) history.push({ role: "user", content: topic ? `Start the conversation about: ${topic}. Greet me warmly in one short sentence and ask one natural, specific question about it.` : "Start the conversation: greet me warmly and ask one natural question." });
   if (data.nudge) history.push({ role: "user", content: "(The learner has been silent for a while. Encourage them in a few words, then ask a simpler, very concrete question about the current topic. Keep it under 20 words.)" });
@@ -149,6 +151,7 @@ export default async function handler(req: { method?: string; body?: Body; heade
     `You are Chloe, a warm, curious language tutor having a live spoken conversation. Persona: ${persona}. Learner speaks ${native}, learns ${target}, CEFR ${cefr}, accent ${accent}.`,
     `Speak only in ${target}, at ${cefr} level. Sound like a real person on a call: 1-3 short, natural sentences, contractions, no lists, markdown or emoji. React to what the learner actually said with a genuine comment or a short personal detail, then ask exactly one open, specific follow-up question so they keep talking. Never lecture.`,
     topic ? `Current topic: ${topic}. Stay on it while it is going well. If answers get very short or the topic has had about 6 exchanges, smoothly bridge to a fresh everyday topic${previousTopics.length ? ` (avoid: ${previousTopics.join(", ")})` : ""}.` : "Pick common, everyday topics and change topic smoothly when one runs dry.",
+    learnerName ? `The learner's name is ${learnerName}. Greet them by name at the start and use it naturally now and then (not every turn).` : "",
     `If the learner seems lost, simplify your language. If they use ${native}, gently answer in ${target} with simpler words. Recast errors naturally inside your reply; do not overcorrect.`,
     data.stream
       ? `Output the spoken reply as plain text, and naturally reuse the correct form in it (e.g. learner says "I eated", you say "Oh, you ate pizza!"). Then, whenever the learner's last message has a grammar, word-choice or word-order mistake, you MUST add one final line starting with "§" with a very brief correction written in ${native}, e.g. "§ Se dice 'I ate', no 'I eated'." Skip the § line only when their message was correct.`

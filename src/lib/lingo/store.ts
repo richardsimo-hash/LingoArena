@@ -1,11 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
-import { NATIVES, NODES_PER_UNIT, PERSONAS, TARGETS, UNITS } from "./content";
+import { NATIVES, NODES_PER_UNIT, PERSONAS, TARGETS, UNITS, nodeConcepts } from "./content";
+import { dayNumber, grade, introduce, type Deck } from "./srs";
 import type { NativeLang, PersonaId, TargetLang } from "./content";
 
-/** `done` holds the indexes of finished lessons (any order — nothing is locked). */
-export type LangProgress = { completed: number; done: number[] };
+/**
+ * `done` holds the indexes of finished lessons (any order — nothing is locked).
+ * `srs` is the Leitner deck of learned phrases; `sinceReview` counts lessons since the last review.
+ */
+export type LangProgress = { completed: number; done: number[]; srs?: Deck; sinceReview?: number };
+
+const lessonConceptIds = (idx: number) => nodeConcepts(Math.floor(idx / NODES_PER_UNIT), idx % NODES_PER_UNIT).map((c) => c.id);
 export type State = {
   configured: boolean;
+  /** Learner's first name, asked on first use. Stored only in this browser. */
+  name: string;
   native: NativeLang;
   target: TargetLang;
   persona: PersonaId;
@@ -29,7 +37,7 @@ const LEGACY_KEYS = ["lingo-arena-force-reset-v99", "lingo-arena-storage", "ling
 export const TOTAL_NODES = UNITS.length * NODES_PER_UNIT;
 
 const DEFAULT: State = {
-  configured: false, native: "en", target: "es", persona: "barista",
+  configured: false, name: "", native: "en", target: "es", persona: "barista",
   xp: 0, hearts: MAX_HEARTS, heartsRefillAt: null, streak: 0, lastActive: null,
   progress: {}, rate: 1, dark: false, bestPron: 0, grammarWins: 0, rapidBest: 0,
 };
@@ -98,11 +106,25 @@ function sanitize(raw: unknown): State {
     const done = Array.isArray(p.done)
       ? p.done.filter((n) => Number.isInteger(n) && n >= 0 && n < MAX_TRACKED_NODES)
       : Array.from({ length: Math.min(p.completed ?? 0, TOTAL_NODES) }, (_, i) => i); // old format
-    progress[lang] = { done: [...new Set(done)], completed: new Set(done).size };
+    const unique = [...new Set(done)];
+    const rawDeck = (p as { srs?: unknown }).srs;
+    let srs: Deck = {};
+    if (rawDeck && typeof rawDeck === "object") {
+      for (const [id, card] of Object.entries(rawDeck as Record<string, Partial<{ box: number; due: number; lapses: number }>>)) {
+        if (card && [1, 2, 3, 4, 5].includes(Number(card.box)) && Number.isFinite(card.due)) srs[id] = { box: Number(card.box) as 1, due: Number(card.due), lapses: Number(card.lapses) || 0 };
+      }
+    }
+    // Learners from before spaced review: their finished lessons become box-1 cards due today.
+    const known = new Set(Object.keys(srs));
+    const missing = unique.flatMap(lessonConceptIds).filter((id) => !known.has(id));
+    if (missing.length) srs = introduce(srs, missing, dayNumber(), missing);
+    const sinceReview = Number.isInteger((p as { sinceReview?: unknown }).sinceReview) ? Number((p as { sinceReview?: number }).sinceReview) : 0;
+    progress[lang] = { done: unique, completed: unique.length, srs, sinceReview };
   }
   const hearts = Number.POSITIVE_INFINITY;
   const persona = parsePersona((r as { persona?: unknown }).persona);
-  return { ...DEFAULT, ...(r as Partial<State>), native, target, persona, hearts, progress };
+  const name = typeof r.name === "string" ? r.name.replace(/\s+/g, " ").trim().slice(0, 40) : "";
+  return { ...DEFAULT, ...(r as Partial<State>), name, native, target, persona, hearts, progress };
 }
 
 export function useLingo() {
@@ -148,17 +170,29 @@ export function useLingo() {
   // Compatibility no-op: mistakes never consume lives or block learning.
   const loseHeart = useCallback(() => undefined, []);
 
-  const completeNode = useCallback((idx: number) => setS((p) => {
-    const cur = p.progress[p.target]?.done ?? [];
-    if (cur.includes(idx)) return p;
-    const done = [...cur, idx];
-    return { ...p, progress: { ...p.progress, [p.target]: { done, completed: done.length } } };
+  /** Finishing a lesson (new or repeated) adds its phrases to the review deck and counts toward the next review. */
+  const completeNode = useCallback((idx: number, weak: string[] = []) => setS((p) => {
+    const cur = p.progress[p.target] ?? { done: [], completed: 0 };
+    const done = cur.done.includes(idx) ? cur.done : [...cur.done, idx];
+    const srs = introduce(cur.srs ?? {}, lessonConceptIds(idx), dayNumber(), weak);
+    return { ...p, progress: { ...p.progress, [p.target]: { ...cur, done, completed: done.length, srs, sinceReview: (cur.sinceReview ?? 0) + 1 } } };
+  }), []);
+
+  /** Applies a review's results (phrase id -> answered correctly) and resets the lesson counter. */
+  const finishReview = useCallback((results: Record<string, boolean>) => setS((p) => {
+    const cur = p.progress[p.target] ?? { done: [], completed: 0 };
+    let srs = cur.srs ?? {};
+    const today = dayNumber();
+    for (const [id, correct] of Object.entries(results)) srs = grade(srs, id, correct, today);
+    return { ...p, progress: { ...p.progress, [p.target]: { ...cur, srs, sinceReview: 0 } } };
   }), []);
 
   const reset = useCallback(() => { localStorage.removeItem(KEY); const native = detectNative(); setS({ ...DEFAULT, native, target: defaultTarget(native) }); }, []);
 
   const done = s.progress[s.target]?.done ?? [];
   const completed = done.length;
-  return { s, loaded, update, addXp, loseHeart, completeNode, reset, completed, done };
+  const deck = s.progress[s.target]?.srs ?? {};
+  const sinceReview = s.progress[s.target]?.sinceReview ?? 0;
+  return { s, loaded, update, addXp, loseHeart, completeNode, finishReview, reset, completed, done, deck, sinceReview };
 }
 export type Lingo = ReturnType<typeof useLingo>;

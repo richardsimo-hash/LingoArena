@@ -54,7 +54,7 @@ export async function chatReply(data: ChatInput): Promise<Reply> {
   }
 }
 
-export type StreamInput = ChatInput & { topic?: string; previousTopics?: string[]; nudge?: boolean };
+export type StreamInput = ChatInput & { topic?: string; previousTopics?: string[]; nudge?: boolean; learnerName?: string };
 
 /**
  * Streams the tutor's reply. `onText` receives the full text so far on every chunk, so the

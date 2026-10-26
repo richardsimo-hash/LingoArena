@@ -13,6 +13,8 @@ export function Settings({ lingo, onClose }: { lingo: Lingo; onClose: () => void
   const [native, setNative] = useState(s.native);
   const [target, setTarget] = useState(s.target);
   const [persona, setPersona] = useState(s.persona);
+  const [name, setName] = useState(s.name);
+  const cleanName = name.replace(/\s+/g, " ").trim().slice(0, 40);
   const [accent, setAccentChoice] = useState(() => getAccent(s.target));
   const [confirm, setConfirm] = useState(false);
   const t = makeT(native); // the dialog itself switches language as soon as the user picks one
@@ -21,7 +23,7 @@ export function Settings({ lingo, onClose }: { lingo: Lingo; onClose: () => void
     setNative(n);
     if (target === n) { const next = defaultTarget(n); setTarget(next); setAccentChoice(getAccent(next)); }
   };
-  const save = () => { setAccent(target, accent); update({ native, target, persona, configured: true }); onClose(); };
+  const save = () => { if (!cleanName) return; setAccent(target, accent); update({ name: cleanName, native, target, persona, configured: true }); onClose(); };
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/50 p-4 backdrop-blur-sm">
@@ -31,8 +33,13 @@ export function Settings({ lingo, onClose }: { lingo: Lingo; onClose: () => void
             <h2 className="text-3xl font-extrabold">{s.configured ? t("settings") : t("welcome")}</h2>
             <p className="text-sm text-muted-foreground">{t("setupSub")}</p>
           </div>
-          {s.configured && <button aria-label={t("close")} onClick={onClose} className="rounded-full p-2 hover:bg-muted"><X /></button>}
+          {s.configured && s.name && <button aria-label={t("close")} onClick={onClose} className="rounded-full p-2 hover:bg-muted"><X /></button>}
         </div>
+
+        <label htmlFor="learner-name" className="mb-1 block text-xs font-extrabold uppercase text-muted-foreground">{t("yourName")}</label>
+        <input id="learner-name" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && cleanName && target !== native && save()} autoFocus={!s.name} maxLength={40} autoComplete="given-name" placeholder={t("namePlaceholder")}
+          className="mb-1 w-full rounded-2xl border-2 border-border bg-background p-3 text-lg font-bold outline-none focus:border-primary" />
+        <p className="mb-4 text-xs text-muted-foreground">{t("nameHint")}</p>
 
         <label className="mb-1 block text-xs font-extrabold uppercase text-muted-foreground">{t("iSpeak")}</label>
         <select value={native} onChange={(e) => pickNative(e.target.value as NativeLang)} className="mb-4 w-full rounded-2xl border-2 border-border bg-background p-3 font-bold">
@@ -80,7 +87,7 @@ export function Settings({ lingo, onClose }: { lingo: Lingo; onClose: () => void
           </button>
         </div>
 
-        <Btn className="w-full" onClick={save} disabled={target === native}>{s.configured ? t("save") : t("enter")}</Btn>
+        <Btn className="w-full" onClick={save} disabled={target === native || !cleanName}>{s.configured ? t("save") : t("enter")}</Btn>
 
         {s.configured && (
           <div className="mt-4 border-t-2 border-border pt-4">
