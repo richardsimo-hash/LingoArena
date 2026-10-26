@@ -461,6 +461,8 @@ function browserSpeak(text: string, locale: string, rate: number, token: number,
         }, Math.min(20000, 2500 + (sentence.length * 85) / Math.max(0.5, rate)));
       };
       utterance.onstart = () => { started = true; armFinishWatchdog(); if (token === speakingToken) cb?.onStart?.(); };
+      // Lets the animated tutor move its mouth on each spoken word (browser voices expose no audio level).
+      utterance.onboundary = (event) => { if (event.name === "word" && token === speakingToken) window.dispatchEvent(new Event("lingo-speech-boundary")); };
       utterance.onend = () => { clear(); releaseUtterance(utterance); next(); };
       utterance.onerror = (event) => {
         clear();

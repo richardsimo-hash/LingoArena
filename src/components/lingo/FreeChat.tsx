@@ -10,6 +10,7 @@ import type { Lingo } from "@/lib/lingo/store";
 import { Btn, Card, MicButton, useSpeech } from "./ui";
 import { cn } from "@/lib/utils";
 import { useHandsFreeConversation } from "@/lib/lingo/useHandsFreeConversation";
+import { TutorAvatar } from "./TutorAvatar";
 
 type Msg = { role: "user" | "assistant"; content: string; correction?: string };
 
@@ -54,8 +55,6 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [talking, setTalking] = useState(false);
-  const [mouthLevel, setMouthLevel] = useState(0);
-  const [hasAudioAmplitude, setHasAudioAmplitude] = useState(false);
   const [left, setLeft] = useState(0);
   const [elapsed, setElapsed] = useState(0);
   const [offline, setOffline] = useState(false);
@@ -78,16 +77,6 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   msgsRef.current = msgs; phaseRef.current = phase; handsFreeRef.current = handsFree;
 
   useEffect(() => () => { speakerRef.current?.cancel(); stopSpeaking(); }, []);
-  useEffect(() => {
-    const updateMouth = (event: Event) => {
-      const level = Number((event as CustomEvent<{ level?: number }>).detail?.level || 0);
-      setMouthLevel(level);
-      if (level > 0.025) setHasAudioAmplitude(true);
-      else window.setTimeout(() => setHasAudioAmplitude(false), 250);
-    };
-    window.addEventListener("lingo-audio-level", updateMouth);
-    return () => window.removeEventListener("lingo-audio-level", updateMouth);
-  }, []);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, busy]);
 
   // countdown / elapsed timer
@@ -242,9 +231,9 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
   if (phase === "setup") return (
     <div className="mx-auto max-w-xl space-y-5">
       <Card className="space-y-5 text-center">
-        <div className="relative mx-auto grid h-44 w-full max-w-sm place-items-center overflow-hidden rounded-[2rem] bg-gradient-to-br from-indigo-950 via-violet-800 to-fuchsia-700 text-7xl shadow-xl">
+        <div className="relative mx-auto grid h-48 w-full max-w-sm place-items-center overflow-hidden rounded-[2rem] bg-gradient-to-br from-sky-400 via-indigo-400 to-fuchsia-400 shadow-xl">
           <div className="absolute inset-x-8 bottom-0 h-24 rounded-t-[50%] bg-white/15 blur-xl" />
-          <div className="relative grid h-28 w-28 place-items-center rounded-full border-4 border-white/40 bg-white/15 text-7xl shadow-2xl">👩🏻‍🏫</div>
+          <TutorAvatar size={150} greet state="idle" className="relative" />
           <span className="absolute bottom-3 left-4 rounded-full bg-black/25 px-3 py-1 text-sm font-extrabold text-white">Chloe · AI tutor</span>
         </div>
         <h2 className="text-3xl font-extrabold">{t("chatTitle")}</h2>
@@ -303,8 +292,9 @@ export function FreeChat({ lingo, reward }: { lingo: Lingo; reward: (xp: number)
       </div>
 
       {/* Avatar call screen: idle / thinking / listening / speaking */}
-      <div className={cn("relative flex min-h-[300px] flex-col items-center justify-center gap-3 overflow-hidden rounded-[2rem] bg-gradient-to-br from-indigo-950 via-violet-800 to-fuchsia-700 p-6 text-white shadow-xl", talking && "avatar-speaking")}>
-        <div className={cn("relative grid h-36 w-36 place-items-center rounded-full border-4 border-white/40 bg-white/15 text-8xl shadow-2xl transition", talking && "scale-[1.03]", busy && "animate-pulse", speech.listening && "ring-4 ring-emerald-300")}><span>👩🏻‍🏫</span><span className={cn("avatar-mouth", talking && !hasAudioAmplitude && "avatar-mouth-fallback")} style={{ height: `${3 + mouthLevel * 13}px`, width: `${10 + mouthLevel * 5}px` }} aria-hidden="true" /></div>
+      <div className={cn("relative flex min-h-[300px] flex-col items-center justify-center gap-3 overflow-hidden rounded-[2rem] bg-gradient-to-br from-sky-400 via-indigo-400 to-fuchsia-400 p-6 text-white shadow-xl", talking && "avatar-speaking")}>
+        <TutorAvatar size={190} greet={msgs.filter((m) => m.role === "assistant").length <= 1}
+          state={talking || handsFreeController.state === "speaking" ? "speaking" : busy || speech.processing || handsFreeController.state === "thinking" ? "thinking" : speech.listening || handsFreeController.isListening ? "listening" : "idle"} />
         <p className="text-xl font-extrabold">Chloe</p>
         <div className="flex h-6 items-end gap-1" aria-hidden>
           {[0, 1, 2, 3, 4, 5, 6].map((i) => <span key={i} className={cn("w-1.5 rounded-full bg-emerald-300 transition-all", talking ? "animate-pulse" : "")} style={{ height: talking ? 7 + ((i * 9) % 18) : 4, animationDelay: `${i * 90}ms` }} />)}
